@@ -1,104 +1,105 @@
 package makeupdays.servlet;
 
-import java.io.File;
 import java.io.IOException;
-import java.nio.file.Paths;
+import java.io.PrintWriter;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.util.HashMap;
+import java.util.Map;
 
 import jakarta.servlet.ServletException;
-import jakarta.servlet.annotation.MultipartConfig;
 import jakarta.servlet.annotation.WebServlet;
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import jakarta.servlet.http.Part;
 
-import makeupdays.dao.DiaryDAO;
-
-@WebServlet("/diary")
-@MultipartConfig
+/**
+ * クラウド(Railway)とローカル両方で動作するように調整したサーブレット
+ */
+@WebServlet("/DiaryServlet")
 public class DiaryServlet extends HttpServlet {
-    private DiaryDAO dao = new DiaryDAO();
+    private static final long serialVersionUID = 1L;
+    
+    private static final String JDBC_DRIVER = "com.mysql.cj.jdbc.Driver"; 
 
-    @Override
-    protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-        resp.setContentType("application/json; charset=UTF-8");
-        try {
-            resp.getWriter().write(dao.getAllDiariesAsJson());
-        } catch (Exception e) {
-            e.printStackTrace();
-            resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+    private Connection getConnection() throws Exception {
+        Class.forName(JDBC_DRIVER);
+
+        // Railwayが提供する環境変数を取得（設定されていない場合はnullになる）
+        String host = System.getenv("MYSQLHOST");
+        String port = System.getenv("MYSQLPORT");
+        String dbName = System.getenv("MYSQLDATABASE");
+        String user = System.getenv("MYSQLUSER");
+        String pass = System.getenv("MYSQLPASSWORD");
+
+        String dbUrl;
+        if (host != null) {
+            // クラウド環境（Railway）用の接続文字列
+            dbUrl = String.format("jdbc:mysql://%s:%s/%s?serverTimezone=JST", host, port, dbName);
+        } else {
+            // ローカル環境用の接続文字列
+            dbUrl = "jdbc:mysql://localhost:3306/mycoorddb?serverTimezone=JST";
+            user = "root"; 
+            pass = "あなたのローカルのパスワード"; 
         }
+
+        return DriverManager.getConnection(dbUrl, user, pass);
     }
 
-    @Override
-    protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-        req.setCharacterEncoding("UTF-8");
-        resp.setContentType("application/json; charset=UTF-8");
+    // --- doGet, doPost メソッドなどは以前の MariaDB 用コードと同じものを使用してください ---
+    protected void doGet(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
+        response.setContentType("application/json; charset=UTF-8");
+        PrintWriter out = response.getWriter();
+        String dateStr = request.getParameter("date");
+        
+        if (dateStr == null || dateStr.isEmpty()) {
+            response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+            out.print("{\"error\": \"日付が必要です\"}");
+            return;
+        }
 
-        System.out.println("====== 保存処理スタート ======"); // ★ログ出力
-
-        try {
-            String date = req.getParameter("date");
-            String bodyText = req.getParameter("bodyText");
-            String emotionCode = req.getParameter("emotionCode");
-            
-            System.out.println("データ受信: 日付=" + date + ", 本文=" + bodyText); // ★ログ出力
-
-            Part filePart = req.getPart("photoFile");
-            String photoPath = ""; 
-
-            if (filePart != null && filePart.getSize() > 0) {
-                String fileName = Paths.get(filePart.getSubmittedFileName()).getFileName().toString();
-                String appPath = req.getServletContext().getRealPath("");
-                String saveDir = appPath + File.separator + "uploads";
-                
-                System.out.println("写真保存場所: " + saveDir); // ★ログ出力
-
-                File fileSaveDir = new File(saveDir);
-                if (!fileSaveDir.exists()) {
-                    fileSaveDir.mkdir();
-                    System.out.println("フォルダを作成しました"); // ★ログ出力
+        Map<String, Object> diaryData = new HashMap<>();
+        try (Connection conn = getConnection()) {
+            // DIARY取得
+            String sqlDiary = "SELECT entry_text FROM DIARY WHERE diary_date = ?";
+            try (PreparedStatement stmt = conn.prepareStatement(sqlDiary)) {
+                stmt.setString(1, dateStr);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    if (rs.next()) {
+                        diaryData.put("date", dateStr);
+                        diaryData.put("text", rs.getString("entry_text"));
+                    } else {
+                        response.setStatus(HttpServletResponse.SC_NOT_FOUND);
+                        return;
+                    }
                 }
-
-                filePart.write(saveDir + File.separator + fileName);
-                photoPath = "uploads/" + fileName;
-                System.out.println("写真保存完了: " + photoPath); // ★ログ出力
-            } else {
-                System.out.println("写真は選択されていません"); // ★ログ出力
             }
-
-            // DAO呼び出し
-            System.out.println("データベース保存を開始します..."); // ★ログ出力
-            boolean success = dao.saveDiary(date, photoPath, bodyText, emotionCode);
-            System.out.println("データベース保存結果: " + success); // ★ログ出力
-            
-            if (success) {
-                resp.getWriter().write("{\"success\": true}");
-            } else {
-                System.err.println("【失敗】DAOが false を返しました"); // ★エラーログ
-                resp.getWriter().write("{\"success\": false}");
+            // PHOTO取得
+            String sqlPhoto = "SELECT file_path FROM PHOTO WHERE diary_date = ?";
+            try (PreparedStatement stmt = conn.prepareStatement(sqlPhoto)) {
+                stmt.setString(1, dateStr);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    if (rs.next()) diaryData.put("photo", rs.getString("file_path"));
+                }
             }
-
-        } catch (Exception e) {
-            System.err.println("【例外発生】Servletでエラーが起きました"); // ★エラーログ
-            e.printStackTrace(); 
-            resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
-            resp.getWriter().write("{\"success\": false, \"error\": \"" + e.getMessage() + "\"}");
-        }
-        System.out.println("====== 保存処理終了 ======");
-    }
-
-    @Override
-    protected void doDelete(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-        // (省略: 以前と同じでOK)
-        resp.setContentType("application/json; charset=UTF-8");
-        try {
-            String date = req.getParameter("date");
-            boolean success = dao.deleteDiary(date);
-            resp.getWriter().write("{\"success\": " + success + "}");
+            // JSON出力
+            out.print(buildJson(diaryData));
         } catch (Exception e) {
             e.printStackTrace();
-            resp.getWriter().write("{\"success\": false}");
+            response.setStatus(500);
         }
+    }
+
+    private String buildJson(Map<String, Object> data) {
+        // 簡易JSON構築ロジック（前述のものと同じ）
+        StringBuilder sb = new StringBuilder("{");
+        for (Map.Entry<String, Object> entry : data.entrySet()) {
+            sb.append("\"").append(entry.getKey()).append("\":\"").append(entry.getValue()).append("\",");
+        }
+        if (sb.length() > 1) sb.setLength(sb.length() - 1);
+        sb.append("}");
+        return sb.toString();
     }
 }
