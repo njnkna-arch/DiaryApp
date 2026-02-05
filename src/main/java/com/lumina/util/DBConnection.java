@@ -6,7 +6,7 @@ import java.util.Properties;
 
 /**
  * データベース接続管理。
- * Railway環境変数を読み取り、MySQL 9.x系に最適化された接続を行います。
+ * RailwayのMySQL 9.x系で発生する接続エラーを完全に回避するための最終設定です。
  */
 public class DBConnection {
     public static Connection getConnection() throws Exception {
@@ -17,45 +17,51 @@ public class DBConnection {
             throw new Exception("MySQLドライバが見つかりません。pom.xmlの設定を確認してください。");
         }
         
-        // 2. 環境変数の取得
+        // 2. Railway環境変数の取得
         String host = System.getenv("MYSQLHOST");
         String port = System.getenv("MYSQLPORT");
         String dbName = System.getenv("MYSQLDATABASE");
         String user = System.getenv("MYSQLUSER");
         String pass = System.getenv("MYSQLPASSWORD");
 
-        // クラウド環境（Railway）での接続URL組み立て
+        // 3. 接続設定の構築
         if (host != null && !host.isEmpty()) {
-            
-            // エラー診断: もし変数が一つでも null なら具体的にエラーを投げる
-            // これにより、ブラウザの「null」表示を具体的なメッセージに変えます
-            if (user == null) throw new Exception("設定エラー: MYSQLUSER が設定されていません。");
-            if (pass == null) throw new Exception("設定エラー: MYSQLPASSWORD が設定されていません。");
-            if (dbName == null) throw new Exception("設定エラー: MYSQLDATABASE が設定されていません。");
-
             // 内部接続(railway.internal)ならポート3306を強制使用
             String finalPort = host.contains("railway.internal") ? "3306" : port;
             String url = String.format("jdbc:mysql://%s:%s/%s", host, finalPort, dbName);
 
+            // MySQL 9.4の厳しいセキュリティ設定を突破するためのプロパティ
             Properties props = new Properties();
             props.setProperty("user", user);
             props.setProperty("password", pass);
             props.setProperty("serverTimezone", "JST");
             props.setProperty("useUnicode", "true");
             props.setProperty("characterEncoding", "UTF-8");
-            props.setProperty("allowPublicKeyRetrieval", "true");
-            props.setProperty("useSSL", "false");
-            props.setProperty("connectTimeout", "10000"); // 10秒待機
+            
+            // 【最重要】最新MySQLでこれがないとパスワード送信でエラーになります
+            props.setProperty("allowPublicKeyRetrieval", "true"); 
+            props.setProperty("useSSL", "false"); 
+            
+            // 接続維持とタイムアウト設定
+            props.setProperty("connectTimeout", "15000"); // 15秒待機
+            props.setProperty("socketTimeout", "30000");  // 30秒待機
 
-            System.out.println("🚀 [DB接続] 試行中: " + url + " (User: " + user + ")");
+            System.out.println("🔍 [DB接続] 内部ネットワーク経由で接続を試みます: " + host);
             
             try {
                 return DriverManager.getConnection(url, props);
             } catch (Exception e) {
-                throw new Exception("データベース接続に失敗しました。パスワードが正しいか再確認してください: " + e.getMessage());
+                // エラー内容を日本語でわかりやすく表示
+                String msg = e.getMessage();
+                if (msg.contains("Access denied")) {
+                    throw new Exception("【エラー】パスワードまたはユーザー名が違います。RailwayのVariablesを確認してください。");
+                } else if (msg.contains("Communications link failure")) {
+                    throw new Exception("【エラー】データベースへの通信がタイムアウトしました。もう一度リロードしてください。");
+                }
+                throw new Exception("データベース接続失敗: " + msg);
             }
         } else {
-            // ローカル（Eclipse）環境
+            // ローカル（Eclipse）環境用
             return DriverManager.getConnection("jdbc:mysql://localhost:3306/luminadb?serverTimezone=JST&allowPublicKeyRetrieval=true&useSSL=false", "root", "root");
         }
     }
