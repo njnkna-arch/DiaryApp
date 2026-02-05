@@ -13,71 +13,89 @@
     <style>
         body { font-family: 'Inter', sans-serif; background-color: #faf9f6; color: #44403c; }
         .font-serif { font-family: 'Playfair Display', serif; }
-        .no-scrollbar::-webkit-scrollbar { display: none; }
-        .tree-transition { transition: all 1s ease-in-out; }
+        .fade-in { animation: fadeIn 0.5s ease-out forwards; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     </style>
 </head>
 <body>
     <div id="root"></div>
     <script type="text/babel">
-        const { useState, useEffect, useMemo } = React;
-        
-        const TreeGraphic = ({ entries = [], size = "large" }) => {
-            const count = entries.length;
-            const scale = count >= 10 ? 1.15 : count >= 5 ? 1.08 : 1.0;
-            return (
-                <div className="flex justify-center tree-transition" style={{ transform: `scale(${scale})`, transformOrigin: 'bottom' }}>
-                    <svg width={size === "small" ? 60 : 300} height={size === "small" ? 40 : 200} viewBox="0 0 200 120">
-                        <path d="M92 120 Q100 118 100 105 T108 120" fill="#D6D3D1" />
-                        <path d="M10 85 Q10 25 100 20 T190 85 Q190 100 100 105 T10 85" fill={count > 0 ? "#34d399" : "#faf9f6"} stroke="#e5e7eb" />
-                    </svg>
-                </div>
-            );
-        };
+        const { useState, useEffect } = React;
 
         function App() {
             const [view, setView] = useState('list');
             const [diaries, setDiaries] = useState([]);
-            const [active, setActive] = useState(null);
-            const [entries, setEntries] = useState([]);
+            const [authMode, setAuthMode] = useState(null);
+            const [authIn, setAuthIn] = useState({ name: '', host: '', pass: '', loginId: '' });
 
             useEffect(() => {
-                fetch('LuminaServlet?action=list').then(r => r.json()).then(setDiaries).catch(()=>{});
+                fetch('LuminaServlet?action=list')
+                    .then(r => r.json())
+                    .then(data => { if(Array.isArray(data)) setDiaries(data); })
+                    .catch(e => console.error("Fetch error:", e));
             }, []);
 
-            const fetchEntries = (id) => {
-                fetch(`LuminaServlet?action=getEntries&groupId=${id}`).then(r => r.json()).then(setEntries).catch(()=>{});
+            const handleAuth = (type) => {
+                const params = new URLSearchParams({ action: type, ...authIn });
+                fetch('LuminaServlet', { method: 'POST', body: params })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.id || data.success) {
+                            alert(type === 'create' ? "庭園を作成しました！ ID: " + data.id : "ログインしました");
+                            window.location.reload(); 
+                        } else {
+                            alert("エラーが発生しました: " + (data.error || "不明な原因"));
+                        }
+                    });
             };
 
             if (view === 'list') {
                 return (
-                    <div className="max-w-md mx-auto p-8 min-h-screen">
-                        <h1 className="text-5xl font-serif font-bold text-center mt-20 mb-10 text-stone-800">LUMINA</h1>
-                        <div className="space-y-4">
-                            {diaries.length === 0 ? <p className="text-center text-stone-300">庭園がまだありません</p> : 
-                            diaries.map(d => (
-                                <div key={d.group_id} onClick={() => { setActive({id: d.group_id, name: d.group_name}); fetchEntries(d.group_id); setView('app'); }} className="bg-white p-6 rounded-3xl shadow-sm border cursor-pointer hover:shadow-md transition-all">
-                                    <h3 className="font-bold text-stone-700">{d.group_name}</h3>
-                                    <p className="text-xs text-stone-400">ID: {d.group_id}</p>
+                    <div className="max-w-md mx-auto p-6 min-h-screen flex flex-col fade-in">
+                        <header className="text-center mt-12 mb-10">
+                            <h1 className="text-5xl font-serif font-bold text-stone-800">LUMINA</h1>
+                            <p className="text-stone-400 text-[10px] tracking-widest uppercase mt-2">Garden of Memories</p>
+                        </header>
+
+                        <main className="flex-1">
+                            <h2 className="text-[10px] font-bold text-stone-400 uppercase mb-4">Garden List</h2>
+                            <div className="space-y-3">
+                                {diaries.length === 0 ? (
+                                    <div className="py-10 text-center text-stone-300 italic border-2 border-dashed rounded-3xl">庭園がまだありません</div>
+                                ) : (
+                                    diaries.map(d => (
+                                        <div key={d.group_id} className="bg-white p-5 rounded-3xl shadow-sm border border-stone-100">
+                                            <h3 className="font-bold text-stone-700">{d.group_name}</h3>
+                                            <p className="text-[10px] text-stone-400 font-mono">ID: {d.group_id}</p>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </main>
+
+                        <footer className="mt-10 space-y-4">
+                            <div className="flex gap-4">
+                                <button onClick={() => setAuthMode('login')} className={`flex-1 py-4 rounded-2xl font-bold border ${authMode === 'login' ? 'bg-stone-800 text-white' : 'bg-white text-stone-600'}`}>入園（ログイン）</button>
+                                <button onClick={() => setAuthMode('create')} className={`flex-1 py-4 rounded-2xl font-bold border ${authMode === 'create' ? 'bg-stone-800 text-white' : 'bg-white text-stone-600'}`}>新規作成</button>
+                            </div>
+
+                            {authMode && (
+                                <div className="bg-white p-6 rounded-[2rem] shadow-xl border border-stone-50 space-y-3 fade-in">
+                                    <input placeholder="庭園（日記）の名前" className="w-full p-3 bg-stone-50 rounded-xl outline-none" value={authIn.name} onChange={e => setAuthIn({...authIn, name: e.target.value})} />
+                                    {authMode === 'create' && <input placeholder="あなたの名前" className="w-full p-3 bg-stone-50 rounded-xl outline-none" value={authIn.host} onChange={e => setAuthIn({...authIn, host: e.target.value})} />}
+                                    {authMode === 'login' && <input placeholder="庭園IDを入力" className="w-full p-3 bg-stone-50 rounded-xl outline-none" value={authIn.loginId} onChange={e => setAuthIn({...authIn, loginId: e.target.value})} />}
+                                    <input type="password" placeholder="パスワード" className="w-full p-3 bg-stone-50 rounded-xl outline-none" value={authIn.pass} onChange={e => setAuthIn({...authIn, pass: e.target.value})} />
+                                    <button onClick={() => handleAuth(authMode)} className="w-full py-3 bg-stone-800 text-white rounded-xl font-bold">決定</button>
                                 </div>
-                            ))}
-                        </div>
+                            )}
+                        </footer>
                     </div>
                 );
             }
-
-            return (
-                <div className="max-w-md mx-auto p-4 min-h-screen bg-white">
-                    <header className="flex items-center gap-4 mb-8">
-                        <button onClick={() => setView('list')} className="text-stone-400 text-2xl">←</button>
-                        <h2 className="text-xl font-bold text-stone-800">{active?.name}</h2>
-                    </header>
-                    <TreeGraphic entries={entries} />
-                    <div className="mt-10 text-center text-stone-400 italic font-serif">Growing with your memories...</div>
-                </div>
-            );
+            return <div>App Content</div>;
         }
-        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
     </script>
 </body>
 </html>
