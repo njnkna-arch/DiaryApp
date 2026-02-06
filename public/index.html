@@ -3,97 +3,62 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LUMINA - Garden of Memories</title>
+    <title>LUMINA - Entrance</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
     <style>
-        body { font-family: 'Inter', sans-serif; background-color: #faf9f6; color: #44403c; overflow-x: hidden; }
+        body { font-family: 'Inter', sans-serif; background-color: #faf9f6; color: #44403c; }
         .font-serif { font-family: 'Playfair Display', serif; }
         .fade-in { animation: fadeIn 0.6s ease-out forwards; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         .no-scrollbar::-webkit-scrollbar { display: none; }
-        .tree-transition { transition: all 1s ease-in-out; }
-        .item-float { animation: float 4s ease-in-out infinite; }
-        @keyframes float { 0%, 100% { transform: translate(-50%, -52%) scale(1); } 50% { transform: translate(-50%, -48%) scale(1.05); } }
     </style>
 </head>
 <body>
     <div id="root"></div>
     <script type="text/babel">
-        const { useState, useEffect, useMemo } = React;
+        const { useState, useEffect } = React;
 
-        // --- 共通アイコン (SVG) ---
-        const Icons = {
-            ArrowLeft: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>,
-            Camera: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>,
-            Plus: () => <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/></svg>,
-            ChevronDown: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>,
-            ChevronUp: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m18 15-6-6-6 6"/></svg>,
-            Leaf: () => <svg width="12" height="12" viewBox="0 0 24 24" fill="#34d399"><path d="M11 20A7 7 0 0 1 4 13V5a1 1 0 0 1 1-1h8a7 7 0 0 1 7 7v8a1 1 0 0 1-1 1h-8z"/></svg>
-        };
-
-        // --- 共通パーツ: モンキーポッドの木 ---
-        const TreeGraphic = ({ entries = [], size = "large" }) => {
-            const count = entries.length;
-            const scale = count >= 10 ? 1.15 : count >= 5 ? 1.08 : 1.0;
-            const color = count > 0 ? "#34d399" : "#f1f5f9";
-            return (
-                <div className="flex justify-center tree-transition" style={{ transform: `scale(${scale})`, transformOrigin: 'bottom' }}>
-                    <svg width={size === "small" ? 64 : 320} height={size === "small" ? 44 : 200} viewBox="0 0 200 120">
-                        <path d="M92 120 Q100 118 100 105 T108 120" fill="#D6D3D1" />
-                        <path d="M10 85 Q10 25 100 15 T190 85 Q190 100 100 105 T10 85" fill={color} opacity="0.8" />
-                        <path d="M100 100 L100 60 M100 90 L50 75 M100 85 L150 70 M100 80 L75 45 M100 75 L125 40" stroke="#fff" strokeWidth="0.8" opacity="0.3" fill="none" />
-                    </svg>
-                </div>
-            );
-        };
-
-        // ==========================================
-        // メインアプリケーション (全体の交通整理)
-        // ==========================================
         function App() {
-            const [view, setView] = useState('list'); // 'list' か 'app'
-            const [activeDiary, setActiveDiary] = useState(null); // 現在入っている庭園
             const [diaries, setDiaries] = useState([]);
-            
-            const apiRoot = window.location.origin.startsWith('blob') ? '' : window.location.origin;
-
-            useEffect(() => {
-                fetch(`${apiRoot}/api/list`).then(r => r.json()).then(setDiaries);
-            }, []);
-
-            // 庭園リスト画面を表示
-            if (view === 'list') {
-                return (
-                    <ListView 
-                        diaries={diaries} 
-                        apiRoot={apiRoot} 
-                        onEnter={(diary) => { setActiveDiary(diary); setView('app'); }} 
-                    />
-                );
-            }
-
-            // 日記（庭園）の中を表示
-            return (
-                <GardenView 
-                    diary={activeDiary} 
-                    apiRoot={apiRoot} 
-                    onBack={() => setView('list')} 
-                />
-            );
-        }
-
-        // ==========================================
-        // 1. 入口画面コンポーネント (ListView)
-        // ==========================================
-        const ListView = ({ diaries, apiRoot, onEnter }) => {
             const [authMode, setAuthMode] = useState(null);
             const [authIn, setAuthIn] = useState({ name: '', host: '', pass: '', loginId: '' });
+            const [loading, setLoading] = useState(false);
+
+            // APIのルートパス解決 (プレビュー環境対策)
+            const apiRoot = window.location.origin.startsWith('blob') ? '' : window.location.origin;
+
+            // 庭園一覧を取得
+            const refreshList = () => {
+                fetch(`${apiRoot}/api/list`)
+                    .then(r => r.json())
+                    .then(data => { if(Array.isArray(data)) setDiaries(data); })
+                    .catch(e => console.error("Fetch list error:", e));
+            };
+
+            useEffect(() => {
+                refreshList();
+            }, []);
+
+            // 指定された庭園のIDを持って garden.html へ移動する
+            const goToGarden = (id) => {
+                if (window.location.protocol.startsWith('blob')) {
+                    // プレビュー環境(エディタ内)では移動をシミュレート
+                    alert(`[Preview Mode] 実際は garden.html?groupId=${id} へ移動します。`);
+                    console.log("Redirect target:", `garden.html?groupId=${id}`);
+                } else {
+                    // 本番環境（Railway等）では実際にページを切り替える
+                    window.location.href = `garden.html?groupId=${id}`;
+                }
+            };
 
             const handleAuth = () => {
+                if (loading) return;
+                setLoading(true);
+
                 const endpoint = authMode === 'create' ? `${apiRoot}/api/create` : `${apiRoot}/api/login`;
                 fetch(endpoint, {
                     method: 'POST',
@@ -102,15 +67,15 @@
                 })
                 .then(r => r.json())
                 .then(data => {
-                    if (data.success) {
-                        onEnter({ 
-                            id: data.id || authIn.loginId, 
-                            name: data.group_name || data.name || "庭園" 
-                        });
+                    if (data.success || data.id) {
+                        const targetId = data.id || authIn.loginId;
+                        goToGarden(targetId);
                     } else {
-                        alert(data.error || "入園できませんでした");
+                        alert(data.error || "入園できませんでした。IDまたはパスワードを確認してください。");
                     }
-                });
+                })
+                .catch(err => alert("サーバーと通信できませんでした。"))
+                .finally(() => setLoading(false));
             };
 
             return (
@@ -119,138 +84,98 @@
                         <h1 className="text-5xl font-serif font-bold text-stone-800 tracking-tight">LUMINA</h1>
                         <p className="text-stone-400 text-[10px] tracking-[0.4em] uppercase mt-2">Garden of Memories</p>
                     </header>
+
                     <main className="flex-1 overflow-y-auto no-scrollbar">
-                        <h2 className="text-[10px] font-bold text-stone-400 uppercase mb-4 flex items-center gap-1"><Icons.Leaf /> Garden List</h2>
+                        <h2 className="text-[10px] font-bold text-stone-400 uppercase mb-4 tracking-widest">Garden List</h2>
                         <div className="space-y-3">
                             {diaries.length === 0 ? (
-                                <div className="py-12 text-center text-stone-300 italic border-2 border-dashed rounded-[2.5rem]">庭園を新しく作りましょう</div>
+                                <div className="py-12 text-center text-stone-300 italic border-2 border-dashed rounded-[2.5rem]">
+                                    庭園がまだありません。新しく作りましょう。
+                                </div>
                             ) : diaries.map(d => (
-                                <div key={d.group_id} onClick={() => onEnter({id:d.group_id, name:d.group_name})} className="bg-white p-6 rounded-[2rem] shadow-sm border border-stone-100 cursor-pointer hover:shadow-xl hover:-translate-y-1 transition-all group">
+                                <div 
+                                    key={d.group_id} 
+                                    onClick={() => {
+                                        setAuthMode('login');
+                                        setAuthIn({...authIn, loginId: d.group_id});
+                                    }} 
+                                    className="bg-white p-6 rounded-[2rem] shadow-sm border border-stone-100 cursor-pointer hover:shadow-xl hover:-translate-y-1 transition-all"
+                                >
                                     <h3 className="font-bold text-stone-700 text-lg">{d.group_name}</h3>
-                                    <p className="text-[10px] text-stone-300 font-mono mt-1 uppercase">ID: {d.group_id}</p>
+                                    <div className="flex justify-between items-center mt-1">
+                                        <p className="text-[10px] text-stone-300 font-mono uppercase">ID: {d.group_id}</p>
+                                        <p className="text-[10px] text-stone-400">Host: {d.host_name}</p>
+                                    </div>
                                 </div>
                             ))}
                         </div>
                     </main>
-                    <footer className="mt-8 space-y-4 pb-6">
+
+                    <footer className="mt-8 space-y-4 pb-10">
                         <div className="flex gap-4">
-                            <button onClick={() => setAuthMode('login')} className={`flex-1 py-4 rounded-2xl font-bold border transition-all ${authMode === 'login' ? 'bg-stone-800 text-white shadow-lg' : 'bg-white text-stone-600'}`}>入園</button>
-                            <button onClick={() => setAuthMode('create')} className={`flex-1 py-4 rounded-2xl font-bold border transition-all ${authMode === 'create' ? 'bg-stone-800 text-white shadow-lg' : 'bg-white text-stone-600'}`}>新規作成</button>
+                            <button 
+                                onClick={() => setAuthMode('login')} 
+                                className={`flex-1 py-4 rounded-2xl font-bold border transition-all ${authMode === 'login' ? 'bg-stone-800 text-white shadow-lg' : 'bg-white text-stone-600'}`}
+                            >
+                                入園
+                            </button>
+                            <button 
+                                onClick={() => setAuthMode('create')} 
+                                className={`flex-1 py-4 rounded-2xl font-bold border transition-all ${authMode === 'create' ? 'bg-stone-800 text-white shadow-lg' : 'bg-white text-stone-600'}`}
+                            >
+                                新規作成
+                            </button>
                         </div>
+
                         {authMode && (
                             <div className="bg-white p-6 rounded-[2rem] shadow-2xl border border-stone-50 space-y-3 fade-in">
-                                {authMode === 'create' && <input placeholder="庭園の名前" className="w-full p-3 bg-stone-50 rounded-xl outline-none" onChange={e => setAuthIn({...authIn, name: e.target.value})} />}
-                                {authMode === 'create' && <input placeholder="あなたの名前" className="w-full p-3 bg-stone-50 rounded-xl outline-none" onChange={e => setAuthIn({...authIn, host: e.target.value})} />}
-                                {authMode === 'login' && <input placeholder="庭園IDを入力" className="w-full p-3 bg-stone-50 rounded-xl outline-none font-mono" onChange={e => setAuthIn({...authIn, loginId: e.target.value})} />}
-                                <input type="password" placeholder="パスワード" className="w-full p-3 bg-stone-50 rounded-xl outline-none" onChange={e => setAuthIn({...authIn, pass: e.target.value})} />
-                                <button onClick={handleAuth} className="w-full py-4 bg-stone-800 text-white rounded-xl font-bold shadow-lg">決定</button>
+                                {authMode === 'create' && (
+                                    <React.Fragment>
+                                        <input 
+                                            placeholder="庭園の名前" 
+                                            className="w-full p-3 bg-stone-50 rounded-xl outline-none" 
+                                            value={authIn.name} 
+                                            onChange={e => setAuthIn({...authIn, name: e.target.value})} 
+                                        />
+                                        <input 
+                                            placeholder="あなたの名前" 
+                                            className="w-full p-3 bg-stone-50 rounded-xl outline-none" 
+                                            value={authIn.host} 
+                                            onChange={e => setAuthIn({...authIn, host: e.target.value})} 
+                                        />
+                                    </React.Fragment>
+                                )}
+                                {authMode === 'login' && (
+                                    <input 
+                                        placeholder="庭園IDを入力" 
+                                        className="w-full p-3 bg-stone-50 rounded-xl outline-none font-mono" 
+                                        value={authIn.loginId} 
+                                        onChange={e => setAuthIn({...authIn, loginId: e.target.value})} 
+                                    />
+                                )}
+                                <input 
+                                    type="password" 
+                                    placeholder="パスワード" 
+                                    className="w-full p-3 bg-stone-50 rounded-xl outline-none" 
+                                    value={authIn.pass} 
+                                    onChange={e => setAuthIn({...authIn, pass: e.target.value})} 
+                                />
+                                <button 
+                                    onClick={handleAuth} 
+                                    disabled={loading}
+                                    className="w-full py-4 bg-stone-800 text-white rounded-xl font-bold shadow-lg active:scale-95 disabled:bg-stone-200"
+                                >
+                                    {loading ? '通信中...' : '決定'}
+                                </button>
                             </div>
                         )}
                     </footer>
                 </div>
             );
-        };
+        }
 
-        // ==========================================
-        // 2. 日記画面コンポーネント (GardenView)
-        // ==========================================
-        const GardenView = ({ diary, apiRoot, onBack }) => {
-            const [entries, setEntries] = useState([]);
-            const [selectedDate, setSelectedDate] = useState(new Date());
-            const [isFormOpen, setIsFormOpen] = useState(true);
-            const [entryIn, setEntryIn] = useState({ message: '', photo: null, color: '#FAF9F6' });
-
-            const fetchEntries = () => {
-                fetch(`${apiRoot}/api/entries?groupId=${diary.id}`).then(r => r.json()).then(setEntries);
-            };
-
-            useEffect(() => { fetchEntries(); }, []);
-
-            const handleAddEntry = () => {
-                if (!entryIn.message && !entryIn.photo) return;
-                fetch(`${apiRoot}/api/addEntry`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        groupId: diary.id,
-                        date: selectedDate.toISOString().split('T')[0],
-                        ...entryIn
-                    })
-                }).then(() => {
-                    fetchEntries();
-                    setEntryIn({ message: '', photo: null, color: '#FAF9F6' });
-                });
-            };
-
-            const currentEntries = useMemo(() => {
-                const ds = selectedDate.toISOString().split('T')[0];
-                return entries.filter(e => e.diary_date.includes(ds));
-            }, [entries, selectedDate]);
-
-            return (
-                <div className={`max-w-md mx-auto min-h-screen bg-white p-4 transition-all duration-700 ${isFormOpen ? 'pb-56' : 'pb-16'} fade-in`}>
-                    <header className="flex justify-between items-center mb-6 px-2 mt-4">
-                        <button onClick={onBack} className="p-2 text-stone-300 hover:bg-stone-50 rounded-full"><Icons.ArrowLeft /></button>
-                        <div className="text-center">
-                            <h2 className="text-xl font-serif font-bold text-stone-800 tracking-tight">{diary.name}</h2>
-                            <p className="text-[9px] text-stone-300 font-mono select-all uppercase">ID: {diary.id}</p>
-                        </div>
-                        <div className="w-10"></div>
-                    </header>
-
-                    {/* カレンダー */}
-                    <section className="bg-white rounded-[2.5rem] shadow-xl border border-stone-50 p-4 mb-8">
-                        <div className="grid grid-cols-7 gap-1">
-                            {Array.from({length: 31}).map((_, i) => {
-                                const ds = `2026-02-${String(i+1).padStart(2,'0')}`;
-                                const dayEntries = entries.filter(e => e.diary_date.includes(ds));
-                                return (
-                                    <div key={i} onClick={() => setSelectedDate(new Date(2026, 1, i+1))} className={`aspect-square relative border border-stone-50 flex flex-col items-center justify-end p-1 cursor-pointer transition-all ${selectedDate.getDate() === i+1 ? 'ring-2 ring-stone-800 bg-stone-50 z-10' : ''}`}>
-                                        <span className="absolute top-1 left-1.5 text-[8px] text-stone-300 font-bold">{i+1}</span>
-                                        <TreeGraphic entries={dayEntries} size="small" />
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </section>
-
-                    {/* 巨木表示 */}
-                    <section className="fade-in mb-10">
-                        <div className="px-6 mb-2 text-3xl font-serif font-bold text-stone-800">{selectedDate.toLocaleDateString('ja-JP', {month:'long', day:'numeric'})}</div>
-                        <div className="relative w-full aspect-[4/3] bg-stone-50/30 rounded-[3.5rem] overflow-hidden border border-stone-100 flex items-end justify-center p-8 mt-4 shadow-inner">
-                            <div className="absolute bottom-8 w-full"><TreeGraphic entries={currentEntries} /></div>
-                            <div className="relative z-10 w-full h-full max-w-[260px] max-h-[140px] mb-12">
-                                {currentEntries.map((item, idx) => (
-                                    <div key={item.id} className="absolute item-float" style={{top: `${20+(idx%4)*20}%`, left: `${15+(idx%5)*15}%`, transform: 'translate(-50%, -50%)'}}>
-                                        <div className="p-1 bg-white shadow-xl rounded-xl border border-stone-100 relative group">
-                                            {item.image_data && <img src={item.image_data} className="w-12 h-12 object-cover rounded-lg group-hover:scale-150 transition-transform" />}
-                                            <div className="absolute -bottom-1 -right-1 w-3 h-3 rounded-full border border-white" style={{backgroundColor: item.color}} />
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    </section>
-
-                    {/* 投稿フォーム */}
-                    <div className={`fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white/95 backdrop-blur-xl border-t border-stone-100 rounded-t-[3.5rem] shadow-2xl z-50 transition-transform duration-500 ${isFormOpen ? 'translate-y-0' : 'translate-y-[calc(100%-56px)]'}`}>
-                        <button onClick={() => setIsFormOpen(!isFormOpen)} className="w-full h-14 flex items-center justify-center text-stone-200">{isFormOpen ? <Icons.ChevronDown /> : <Icons.ChevronUp />}</button>
-                        <div className="px-8 pb-10 pt-2 space-y-4">
-                            <div className="flex gap-4 items-center">
-                                <label className="w-16 h-16 flex items-center justify-center bg-stone-50 rounded-[1.5rem] text-stone-300 hover:bg-stone-100 cursor-pointer border shadow-sm"><Icons.Camera /><input type="file" className="hidden" onChange={(e) => { const r = new FileReader(); r.onload = () => setEntryIn({...entryIn, photo: r.result}); r.readAsDataURL(e.target.files[0]); }} /></label>
-                                <div className="flex-1 bg-stone-50 rounded-[1.5rem] px-4 flex items-center border shadow-sm min-h-[64px]">
-                                    <textarea placeholder="綴る..." rows={1} className="w-full bg-transparent text-sm py-4 outline-none resize-none" value={entryIn.message} onChange={e => setEntryIn({...entryIn, message: e.target.value})} />
-                                </div>
-                                <button onClick={handleAddEntry} disabled={!entryIn.message && !entryIn.photo} className="w-16 h-16 bg-stone-800 text-white rounded-[1.5rem] shadow-xl flex items-center justify-center transition-all hover:bg-stone-900 active:scale-95 disabled:bg-stone-100"><Icons.Plus /></button>
-                            </div>
-                            {entryIn.photo && <img src={entryIn.photo} className="w-24 h-24 object-cover rounded-[2rem] border-4 border-white shadow-2xl fade-in" />}
-                        </div>
-                    </div>
-                </div>
-            );
-        };
-
-        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
     </script>
 </body>
 </html>
