@@ -15,160 +15,232 @@
         .fade-in { animation: fadeIn 0.6s ease-out forwards; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         .no-scrollbar::-webkit-scrollbar { display: none; }
+        .search-focus:focus-within { ring: 2px; ring-color: #44403c; }
     </style>
 </head>
 <body>
     <div id="root"></div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'lumina-garden-default';
+
+        window.FB_MODULES = { auth, db, appId, collection, doc, getDoc, setDoc, signInAnonymously, signInWithCustomToken, onAuthStateChanged, onSnapshot };
+    </script>
+
     <script type="text/babel">
-        const { useState, useEffect } = React;
+        const { useState, useEffect, useMemo } = React;
+
+        const Icons = {
+            Search: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>,
+            Plus: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/></svg>,
+            ChevronRight: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>,
+            User: () => <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        };
 
         function App() {
+            const [user, setUser] = useState(null);
             const [diaries, setDiaries] = useState([]);
-            const [authMode, setAuthMode] = useState(null);
-            const [authIn, setAuthIn] = useState({ name: '', host: '', pass: '', loginId: '' });
+            const [searchTerm, setSearchTerm] = useState('');
+            const [isCreateMode, setIsCreateMode] = useState(false);
+            const [authIn, setAuthIn] = useState({ name: '', host: '' });
             const [loading, setLoading] = useState(false);
 
-            // APIのルートパス解決 (プレビュー環境対策)
-            const apiRoot = window.location.origin.startsWith('blob') ? '' : window.location.origin;
-
-            // 庭園一覧を取得
-            const refreshList = () => {
-                fetch(`${apiRoot}/api/list`)
-                    .then(r => r.json())
-                    .then(data => { if(Array.isArray(data)) setDiaries(data); })
-                    .catch(e => console.error("Fetch list error:", e));
-            };
-
+            // 1. 初期認証 (匿名)
             useEffect(() => {
-                refreshList();
+                if (!window.FB_MODULES) return;
+                const { auth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } = window.FB_MODULES;
+                
+                const initAuth = async () => {
+                    try {
+                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                            await signInWithCustomToken(auth, __initial_auth_token);
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                    } catch (err) {
+                        console.error("Auth failed", err);
+                    }
+                };
+                initAuth();
+                const unsubscribe = onAuthStateChanged(auth, setUser);
+                return () => unsubscribe();
             }, []);
 
-            // 指定された庭園のIDを持って garden.html へ移動する
+            // 2. 庭園一覧のリアルタイム取得
+            useEffect(() => {
+                if (!user || !window.FB_MODULES) return;
+                const { db, appId, collection, onSnapshot } = window.FB_MODULES;
+                
+                const gardensCol = collection(db, 'artifacts', appId, 'public', 'data', 'gardens');
+                const unsubscribe = onSnapshot(gardensCol, (snapshot) => {
+                    const list = snapshot.docs.map(doc => ({ group_id: doc.id, ...doc.data() }));
+                    setDiaries(list);
+                });
+                return () => unsubscribe();
+            }, [user]);
+
+            // 3. 検索フィルタリング
+            const filteredDiaries = useMemo(() => {
+                if (!searchTerm) return diaries;
+                const lowTerm = searchTerm.toLowerCase();
+                return diaries.filter(d => 
+                    d.group_name.toLowerCase().includes(lowTerm) || 
+                    d.group_id.toLowerCase().includes(lowTerm)
+                );
+            }, [diaries, searchTerm]);
+
             const goToGarden = (id) => {
-                if (window.location.protocol.startsWith('blob')) {
-                    // プレビュー環境(エディタ内)では移動をシミュレート
-                    alert(`[Preview Mode] 実際は garden.html?groupId=${id} へ移動します。`);
-                    console.log("Redirect target:", `garden.html?groupId=${id}`);
-                } else {
-                    // 本番環境（Railway等）では実際にページを切り替える
-                    window.location.href = `garden.html?groupId=${id}`;
+                window.location.href = `lumina_garden.html?groupId=${encodeURIComponent(id)}`;
+            };
+
+            const handleCreate = async () => {
+                if (loading || !user || !window.FB_MODULES) return;
+                if (!authIn.name) {
+                    alert("庭園の名前を入力してください");
+                    return;
+                }
+                setLoading(true);
+
+                const { db, appId, doc, setDoc } = window.FB_MODULES;
+                
+                try {
+                    const newId = `LUMINA-${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
+                    const gardenDoc = doc(db, 'artifacts', appId, 'public', 'data', 'gardens', newId);
+                    
+                    await setDoc(gardenDoc, {
+                        group_name: authIn.name,
+                        host_name: authIn.host || "匿名ホスト",
+                        created_at: new Date().toISOString()
+                    });
+                    
+                    goToGarden(newId);
+                } catch (err) {
+                    console.error(err);
+                    alert("作成中にエラーが発生しました。");
+                } finally {
+                    setLoading(false);
                 }
             };
 
-            const handleAuth = () => {
-                if (loading) return;
-                setLoading(true);
-
-                const endpoint = authMode === 'create' ? `${apiRoot}/api/create` : `${apiRoot}/api/login`;
-                fetch(endpoint, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(authIn)
-                })
-                .then(r => r.json())
-                .then(data => {
-                    if (data.success || data.id) {
-                        const targetId = data.id || authIn.loginId;
-                        goToGarden(targetId);
-                    } else {
-                        alert(data.error || "入園できませんでした。IDまたはパスワードを確認してください。");
-                    }
-                })
-                .catch(err => alert("サーバーと通信できませんでした。"))
-                .finally(() => setLoading(false));
-            };
-
             return (
-                <div className="max-w-md mx-auto p-6 min-h-screen flex flex-col fade-in">
-                    <header className="text-center mt-12 mb-10">
-                        <h1 className="text-5xl font-serif font-bold text-stone-800 tracking-tight">LUMINA</h1>
-                        <p className="text-stone-400 text-[10px] tracking-[0.4em] uppercase mt-2">Garden of Memories</p>
+                <div className="max-w-md mx-auto p-6 min-h-screen flex flex-col fade-in relative">
+                    {/* 装飾 */}
+                    <div className="absolute top-[-5%] left-[-10%] opacity-5 pointer-events-none select-none">
+                        <svg width="300" height="300" viewBox="0 0 200 200">
+                            <path d="M100,180 Q100,120 100,40" stroke="#444" strokeWidth="2" fill="none" />
+                            <circle cx="100" cy="40" r="15" fill="#444" />
+                        </svg>
+                    </div>
+
+                    <header className="text-center mt-12 mb-8 relative z-10">
+                        <h1 className="text-5xl font-serif font-bold text-stone-800 tracking-tight italic">LUMINA</h1>
+                        <p className="text-stone-400 text-[10px] tracking-[0.4em] uppercase mt-2">Open Garden Entrance</p>
                     </header>
 
-                    <main className="flex-1 overflow-y-auto no-scrollbar">
-                        <h2 className="text-[10px] font-bold text-stone-400 uppercase mb-4 tracking-widest">Garden List</h2>
-                        <div className="space-y-3">
-                            {diaries.length === 0 ? (
-                                <div className="py-12 text-center text-stone-300 italic border-2 border-dashed rounded-[2.5rem]">
-                                    庭園がまだありません。新しく作りましょう。
+                    {/* 検索バー */}
+                    <div className="mb-6 relative z-10">
+                        <div className="flex items-center bg-white border border-stone-100 rounded-2xl px-4 py-3 shadow-sm focus-within:ring-2 focus-within:ring-stone-200 transition-all">
+                            <span className="text-stone-300 mr-3"><Icons.Search /></span>
+                            <input 
+                                type="text"
+                                placeholder="庭園名またはIDで検索"
+                                className="w-full bg-transparent outline-none text-sm text-stone-700 placeholder-stone-300"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                            />
+                        </div>
+                    </div>
+
+                    <main className="flex-1 overflow-y-auto no-scrollbar relative z-10">
+                        <div className="flex justify-between items-center mb-4">
+                            <h2 className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Available Gardens</h2>
+                            <span className="text-[10px] text-stone-300 font-mono">{filteredDiaries.length} Found</span>
+                        </div>
+
+                        <div className="space-y-3 pb-24">
+                            {!user ? (
+                                <div className="py-12 text-center text-stone-300 animate-pulse">
+                                    Garden Loading...
                                 </div>
-                            ) : diaries.map(d => (
+                            ) : filteredDiaries.length === 0 ? (
+                                <div className="py-16 text-center text-stone-300 italic border-2 border-dashed border-stone-50 rounded-[2.5rem]">
+                                    {searchTerm ? '一致する庭園が見つかりません' : '庭園がまだありません'}
+                                </div>
+                            ) : filteredDiaries.map(d => (
                                 <div 
                                     key={d.group_id} 
-                                    onClick={() => {
-                                        setAuthMode('login');
-                                        setAuthIn({...authIn, loginId: d.group_id});
-                                    }} 
-                                    className="bg-white p-6 rounded-[2rem] shadow-sm border border-stone-100 cursor-pointer hover:shadow-xl hover:-translate-y-1 transition-all"
+                                    onClick={() => goToGarden(d.group_id)} 
+                                    className="group bg-white p-5 rounded-[2rem] shadow-sm border border-stone-100 transition-all cursor-pointer hover:shadow-xl hover:-translate-y-1 flex items-center justify-between"
                                 >
-                                    <h3 className="font-bold text-stone-700 text-lg">{d.group_name}</h3>
-                                    <div className="flex justify-between items-center mt-1">
-                                        <p className="text-[10px] text-stone-300 font-mono uppercase">ID: {d.group_id}</p>
-                                        <p className="text-[10px] text-stone-400">Host: {d.host_name}</p>
+                                    <div className="flex-1">
+                                        <h3 className="font-bold text-stone-700 text-lg group-hover:text-stone-900 transition-colors">{d.group_name}</h3>
+                                        <div className="flex gap-4 items-center mt-1">
+                                            <p className="text-[9px] text-stone-300 font-mono uppercase tracking-tighter">ID: {d.group_id}</p>
+                                            <div className="flex items-center gap-1 text-[9px] text-stone-400">
+                                                <Icons.User />
+                                                <span>{d.host_name}</span>
+                                            </div>
+                                        </div>
                                     </div>
+                                    <span className="text-stone-200 group-hover:text-stone-400 transition-colors">
+                                        <Icons.ChevronRight />
+                                    </span>
                                 </div>
                             ))}
                         </div>
                     </main>
 
-                    <footer className="mt-8 space-y-4 pb-10">
-                        <div className="flex gap-4">
-                            <button 
-                                onClick={() => setAuthMode('login')} 
-                                className={`flex-1 py-4 rounded-2xl font-bold border transition-all ${authMode === 'login' ? 'bg-stone-800 text-white shadow-lg' : 'bg-white text-stone-600'}`}
-                            >
-                                入園
-                            </button>
-                            <button 
-                                onClick={() => setAuthMode('create')} 
-                                className={`flex-1 py-4 rounded-2xl font-bold border transition-all ${authMode === 'create' ? 'bg-stone-800 text-white shadow-lg' : 'bg-white text-stone-600'}`}
-                            >
-                                新規作成
-                            </button>
-                        </div>
-
-                        {authMode && (
-                            <div className="bg-white p-6 rounded-[2rem] shadow-2xl border border-stone-50 space-y-3 fade-in">
-                                {authMode === 'create' && (
-                                    <React.Fragment>
-                                        <input 
-                                            placeholder="庭園の名前" 
-                                            className="w-full p-3 bg-stone-50 rounded-xl outline-none" 
-                                            value={authIn.name} 
-                                            onChange={e => setAuthIn({...authIn, name: e.target.value})} 
-                                        />
-                                        <input 
-                                            placeholder="あなたの名前" 
-                                            className="w-full p-3 bg-stone-50 rounded-xl outline-none" 
-                                            value={authIn.host} 
-                                            onChange={e => setAuthIn({...authIn, host: e.target.value})} 
-                                        />
-                                    </React.Fragment>
-                                )}
-                                {authMode === 'login' && (
+                    {/* 下部固定アクション */}
+                    <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto p-6 z-20 pointer-events-none">
+                        <div className="pointer-events-auto bg-gradient-to-t from-stone-50 pt-10">
+                            {isCreateMode ? (
+                                <div className="bg-white p-6 rounded-[2.5rem] shadow-2xl border border-stone-50 space-y-4 fade-in">
+                                    <div className="flex justify-between items-center">
+                                        <h4 className="text-xs font-bold text-stone-400 uppercase tracking-widest">New Garden</h4>
+                                        <button onClick={() => setIsCreateMode(false)} className="text-stone-300 hover:text-stone-500">✕</button>
+                                    </div>
                                     <input 
-                                        placeholder="庭園IDを入力" 
-                                        className="w-full p-3 bg-stone-50 rounded-xl outline-none font-mono" 
-                                        value={authIn.loginId} 
-                                        onChange={e => setAuthIn({...authIn, loginId: e.target.value})} 
+                                        placeholder="庭園の名前" 
+                                        className="w-full p-4 bg-stone-50 rounded-2xl outline-none text-sm border border-transparent focus:border-stone-100 transition-all" 
+                                        value={authIn.name} 
+                                        onChange={e => setAuthIn({...authIn, name: e.target.value})} 
                                     />
-                                )}
-                                <input 
-                                    type="password" 
-                                    placeholder="パスワード" 
-                                    className="w-full p-3 bg-stone-50 rounded-xl outline-none" 
-                                    value={authIn.pass} 
-                                    onChange={e => setAuthIn({...authIn, pass: e.target.value})} 
-                                />
+                                    <input 
+                                        placeholder="あなたの名前" 
+                                        className="w-full p-4 bg-stone-50 rounded-2xl outline-none text-sm border border-transparent focus:border-stone-100 transition-all" 
+                                        value={authIn.host} 
+                                        onChange={e => setAuthIn({...authIn, host: e.target.value})} 
+                                    />
+                                    <button 
+                                        onClick={handleCreate} 
+                                        disabled={loading || !user}
+                                        className="w-full py-4 bg-stone-800 text-white rounded-2xl font-bold shadow-lg active:scale-95 disabled:bg-stone-200 transition-all"
+                                    >
+                                        {loading ? '作成中...' : '新しい庭園を作る'}
+                                    </button>
+                                </div>
+                            ) : (
                                 <button 
-                                    onClick={handleAuth} 
-                                    disabled={loading}
-                                    className="w-full py-4 bg-stone-800 text-white rounded-xl font-bold shadow-lg active:scale-95 disabled:bg-stone-200"
+                                    onClick={() => setIsCreateMode(true)}
+                                    className="w-full py-5 bg-stone-800 text-white rounded-3xl font-bold shadow-2xl flex items-center justify-center gap-3 active:scale-95 transition-all"
                                 >
-                                    {loading ? '通信中...' : '決定'}
+                                    <Icons.Plus />
+                                    <span>新規庭園を作成</span>
                                 </button>
-                            </div>
-                        )}
+                            )}
+                        </div>
+                    </div>
+
+                    <footer className="mt-4 pb-4 text-center text-stone-300 text-[8px] tracking-[0.3em] uppercase relative z-10">
+                        &copy; 2024 LUMINA DESIGN STUDIO
                     </footer>
                 </div>
             );
