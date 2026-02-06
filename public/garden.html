@@ -38,7 +38,7 @@
 
             window.FB_MODULES = { auth, db, appId, collection, addDoc, onSnapshot, signInAnonymously, signInWithCustomToken, onAuthStateChanged };
         } catch (e) {
-            console.error("Firebase init failed:", e);
+            console.error("Firebase initialization failed.");
         }
     </script>
 
@@ -75,7 +75,6 @@
             const groupId = params.get('groupId') || 'DEMO';
 
             const [user, setUser] = useState(null);
-            const [fbReady, setFbReady] = useState(false);
             const [currentMonth, setCurrentMonth] = useState(new Date());
             const [selectedDate, setSelectedDate] = useState(new Date());
             const [entries, setEntries] = useState([]);
@@ -83,42 +82,39 @@
             const [isSaving, setIsSaving] = useState(false);
             const [entryIn, setEntryIn] = useState({ message: '', photo: null, color: '#FAF9F6' });
 
-            // 1. Firebase認証処理の安定化
+            // 1. バックグラウンド認証
             useEffect(() => {
                 const interval = setInterval(async () => {
                     if (window.FB_MODULES) {
                         clearInterval(interval);
                         const { auth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } = window.FB_MODULES;
                         try {
-                            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                                await signInWithCustomToken(auth, __initial_auth_token);
-                            } else {
-                                await signInAnonymously(auth);
+                            if (!auth.currentUser) {
+                                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                                    await signInWithCustomToken(auth, __initial_auth_token);
+                                } else {
+                                    await signInAnonymously(auth);
+                                }
                             }
-                            setFbReady(true);
-                        } catch (err) {
-                            console.error("Auth error:", err);
-                        }
+                        } catch (err) { console.error("Silent auth failed"); }
                         onAuthStateChanged(auth, setUser);
                     }
-                }, 200);
+                }, 100);
                 return () => clearInterval(interval);
             }, []);
 
             // 2. データ同期
             useEffect(() => {
-                if (!user || !fbReady || !window.FB_MODULES) return;
+                if (!user || !window.FB_MODULES) return;
                 const { db, appId, collection, onSnapshot } = window.FB_MODULES;
                 const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'diary_entries');
                 
                 const unsubscribe = onSnapshot(colRef, (snap) => {
                     const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
                     setEntries(data.filter(e => e.groupId === groupId));
-                }, (error) => {
-                    console.error("Sync error:", error);
-                });
+                }, (error) => { console.error("Sync error"); });
                 return () => unsubscribe();
-            }, [user, fbReady, groupId]);
+            }, [user, groupId]);
 
             const calendarDays = useMemo(() => {
                 const year = currentMonth.getFullYear();
@@ -139,7 +135,8 @@
             };
 
             const handleAddEntry = async () => {
-                if ((!entryIn.message.trim() && !entryIn.photo) || !fbReady || isSaving || !user) return;
+                const message = entryIn.message.trim();
+                if ((!message && !entryIn.photo) || isSaving || !user) return;
                 const { db, appId, collection, addDoc } = window.FB_MODULES;
                 
                 setIsSaving(true);
@@ -147,7 +144,7 @@
                     await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'diary_entries'), {
                         groupId,
                         diary_date: getFormattedDate(selectedDate),
-                        message: entryIn.message.trim(),
+                        message: message,
                         image_data: entryIn.photo,
                         color: entryIn.color,
                         created_at: new Date().toISOString()
@@ -155,8 +152,7 @@
                     setEntryIn({ message: '', photo: null, color: '#FAF9F6' });
                     setIsFormOpen(false);
                 } catch (e) { 
-                    console.error("Save Error:", e);
-                    alert("保存に失敗しました。画像のサイズが大きい可能性があります。");
+                    alert("保存できませんでした。画像が大きすぎるか、接続が不安定です。");
                 } finally {
                     setIsSaving(false);
                 }
@@ -167,7 +163,7 @@
                 return entries.filter(e => e.diary_date === ds);
             }, [entries, selectedDate]);
 
-            const isButtonDisabled = (!entryIn.message.trim() && !entryIn.photo) || isSaving || !user || !fbReady;
+            const isButtonDisabled = (!entryIn.message.trim() && !entryIn.photo) || isSaving;
 
             return (
                 <div className="max-w-md mx-auto h-screen bg-white flex flex-col relative overflow-hidden fade-in">
@@ -275,7 +271,7 @@
                                         }} />
                                     </label>
                                     {entryIn.photo && (
-                                        <button onClick={() => setEntryIn({...entryIn, photo: null})} className="text-[8px] text-red-400 font-bold uppercase tracking-widest">Remove</button>
+                                        <button onClick={() => setEntryIn({...entryIn, photo: null})} className="text-[8px] text-red-400 font-bold uppercase tracking-widest hover:text-red-600 transition-colors">Remove</button>
                                     )}
                                 </div>
                                 <div className="flex-1 flex flex-col gap-4">
@@ -288,15 +284,7 @@
                                                 ? 'bg-stone-100 text-stone-300 cursor-not-allowed border border-stone-50' 
                                                 : 'bg-stone-800 text-white hover:bg-stone-900'}`}
                                     >
-                                        {!fbReady ? (
-                                            <span className="flex items-center gap-2 tracking-widest uppercase text-[10px] font-bold">
-                                                <Icons.Loader /> CONNECTING...
-                                            </span>
-                                        ) : isSaving ? (
-                                            <Icons.Loader />
-                                        ) : (
-                                            '想い出を庭園に飾る'
-                                        )}
+                                        {isSaving ? <Icons.Loader /> : '想い出を庭園に飾る'}
                                     </button>
                                 </div>
                             </div>
