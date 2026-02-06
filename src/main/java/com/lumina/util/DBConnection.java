@@ -16,7 +16,7 @@ public class DBConnection {
         // 2. 接続情報を直接指定（ここを書き換えるだけでOK）
         // Railway内部ネットワーク用の情報をそのまま打ち込みます
         String host = "mysql.railway.internal";
-        String port = "200307";
+        String port = "51097";
         String db   = "railway";
         String user = "hironaka";
         
