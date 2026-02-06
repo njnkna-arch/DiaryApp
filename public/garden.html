@@ -23,11 +23,10 @@
 <body>
     <div id="root"></div>
 
-    <!-- Firebase SDKs -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, onSnapshot, doc, deleteDoc, query, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, onSnapshot, doc, deleteDoc, query, getDocs, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         try {
             const firebaseConfig = JSON.parse(__firebase_config);
@@ -36,9 +35,9 @@
             const db = getFirestore(app);
             const appId = typeof __app_id !== 'undefined' ? __app_id : 'lumina-garden-v1';
 
-            window.FB_MODULES = { auth, db, appId, collection, addDoc, onSnapshot, doc, deleteDoc, query, getDocs, signInAnonymously, signInWithCustomToken, onAuthStateChanged };
+            window.FB_MODULES = { auth, db, appId, collection, addDoc, onSnapshot, doc, deleteDoc, query, getDocs, where, signInAnonymously, signInWithCustomToken, onAuthStateChanged };
         } catch (e) {
-            console.error("Firebase config is missing or invalid.");
+            console.error("Firebase initialization failed:", e);
             window.FB_ERROR = e.message;
         }
     </script>
@@ -58,7 +57,7 @@
 
         const TreeGraphic = ({ entries = [], size = "large" }) => {
             const count = entries.length;
-            const scale = count >= 10 ? 1.4 : count >= 5 ? 1.2 : 1.0;
+            const scale = count >= 10 ? 1.5 : count >= 5 ? 1.25 : 1.0;
             const w = size === "small" ? 48 : 400;
             const h = size === "small" ? 34 : 260;
             
@@ -87,13 +86,14 @@
             const [entryIn, setEntryIn] = useState({ message: '', photo: null, color: '#FAF9F6' });
             const [errorMsg, setErrorMsg] = useState(window.FB_ERROR || null);
 
-            // 1. Auth Initialization (RULE 3)
+            const COLLECTION_NAME = 'diary_entries';
+
+            // Firebase 認証の初期化
             useEffect(() => {
                 const interval = setInterval(async () => {
                     if (window.FB_MODULES) {
                         clearInterval(interval);
                         const { auth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } = window.FB_MODULES;
-                        
                         try {
                             if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                                 await signInWithCustomToken(auth, __initial_auth_token);
@@ -103,7 +103,7 @@
                             setFbReady(true);
                         } catch (err) {
                             console.error("Auth failed:", err);
-                            setErrorMsg("認証に失敗しました。再読み込みしてください。");
+                            setErrorMsg("認証エラーが発生しました。");
                         }
                         onAuthStateChanged(auth, setUser);
                     }
@@ -111,18 +111,19 @@
                 return () => clearInterval(interval);
             }, []);
 
-            // 2. Data Synchronization
+            // データのリアルタイム同期
             useEffect(() => {
                 if (!user || !fbReady || !window.FB_MODULES) return;
                 const { db, appId, collection, onSnapshot } = window.FB_MODULES;
-                const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'entries');
+                const colRef = collection(db, 'artifacts', appId, 'public', 'data', COLLECTION_NAME);
                 
                 const unsubscribe = onSnapshot(colRef, (snap) => {
                     const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                    // groupIdに基づいて厳格にフィルタリング
                     setEntries(data.filter(e => e.groupId === groupId));
                 }, (error) => {
                     console.error("Firestore sync error:", error);
-                    setErrorMsg("データベースとの通信に失敗しました。");
+                    setErrorMsg("データの読み込みに失敗しました。");
                 });
                 return () => unsubscribe();
             }, [user, fbReady, groupId]);
@@ -144,7 +145,7 @@
                 
                 setIsSaving(true);
                 try {
-                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'entries'), {
+                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', COLLECTION_NAME), {
                         groupId,
                         diary_date: selectedDate.toISOString().split('T')[0],
                         message: entryIn.message.trim(),
@@ -156,29 +157,29 @@
                     setIsFormOpen(false);
                 } catch (e) { 
                     console.error("Save Error:", e);
-                    alert(e.message.includes('too large') ? "画像が大きすぎます。" : "保存に失敗しました。");
+                    alert("保存に失敗しました。画像のサイズを小さくしてお試しください。");
                 } finally {
                     setIsSaving(false);
                 }
             };
 
             const handleDeleteEntry = async (id) => {
-                if (!window.confirm("本当にこの記録を削除しますか？")) return;
+                if (!window.confirm("本当にこの想い出を削除しますか？")) return;
                 const { db, appId, doc, deleteDoc } = window.FB_MODULES;
                 try {
-                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'entries', id));
-                } catch (e) { alert("削除に失敗しました"); }
+                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', COLLECTION_NAME, id));
+                } catch (e) { alert("削除できませんでした。"); }
             };
 
             const handleCloseGarden = async () => {
-                if (!window.confirm("本当に閉園しますか？\n全ての記録が消去されます。")) return;
+                if (!window.confirm("本当に閉園しますか？\n全ての記録が消去され、元に戻せません。")) return;
                 const { db, appId, doc, deleteDoc } = window.FB_MODULES;
                 try {
                     for (const entry of entries) {
-                        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'entries', entry.id));
+                        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', COLLECTION_NAME, entry.id));
                     }
                     window.location.href = 'index.html';
-                } catch (e) { alert("閉園処理に失敗しました"); }
+                } catch (e) { alert("閉園処理に失敗しました。"); }
             };
 
             const currentEntries = useMemo(() => {
@@ -191,24 +192,24 @@
             return (
                 <div className="max-w-md mx-auto h-screen bg-white flex flex-col relative overflow-hidden fade-in">
                     <header className="flex justify-between items-center px-6 pt-6 pb-2 shrink-0 z-20">
-                        <button onClick={() => window.location.href = 'index.html'} className="p-2 text-stone-400 hover:bg-stone-50 rounded-full transition-colors">
+                        <button onClick={() => window.location.href = 'index.html'} className="p-2 text-stone-400 hover:bg-stone-50 rounded-full transition-colors shadow-sm">
                             <Icons.Home />
                         </button>
                         <div className="text-center">
-                            <h1 className="text-sm font-bold text-stone-300 tracking-[0.3em] uppercase">LUMINA</h1>
-                            <p className="text-[10px] text-stone-400 font-mono tracking-tighter">ID: {groupId}</p>
+                            <h1 className="text-sm font-bold text-stone-300 tracking-[0.4em] uppercase">LUMINA</h1>
+                            <p className="text-[9px] text-stone-400 font-mono tracking-tighter opacity-70">ID: {groupId}</p>
                         </div>
-                        <button onClick={handleCloseGarden} className="p-2 text-stone-300 hover:text-red-400 hover:bg-red-50 rounded-full transition-colors">
+                        <button onClick={handleCloseGarden} className="p-2 text-stone-300 hover:text-red-400 hover:bg-red-50 rounded-full transition-colors shadow-sm">
                             <Icons.Trash />
                         </button>
                     </header>
 
                     <section className="px-6 py-2 shrink-0 z-10">
                         <div className="flex justify-between items-center mb-3">
-                            <h2 className="text-2xl font-serif font-bold text-stone-800 tracking-tighter">{currentMonth.getFullYear()}年 {currentMonth.getMonth() + 1}月</h2>
+                            <h2 className="text-2xl font-serif font-bold text-stone-800 tracking-tight">{currentMonth.getFullYear()}年 {currentMonth.getMonth() + 1}月</h2>
                             <div className="flex gap-2">
-                                <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} className="p-1 text-stone-300 hover:text-stone-600"><Icons.ChevronLeft /></button>
-                                <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} className="p-1 text-stone-300 hover:text-stone-600"><Icons.ChevronRight /></button>
+                                <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} className="p-1.5 text-stone-300 hover:text-stone-600 transition-colors"><Icons.ChevronLeft /></button>
+                                <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} className="p-1.5 text-stone-300 hover:text-stone-600 transition-colors"><Icons.ChevronRight /></button>
                             </div>
                         </div>
                         <div className="bg-white rounded-[2rem] shadow-xl border border-stone-50 p-3">
@@ -225,7 +226,7 @@
                                     const isSelected = selectedDate.getDate() === day && selectedDate.getMonth() === currentMonth.getMonth();
                                     return (
                                         <div key={day} onClick={() => setSelectedDate(new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day))} 
-                                             className={`aspect-square relative border border-stone-50 flex flex-col items-center justify-end p-0.5 cursor-pointer transition-all rounded-lg ${isSelected ? 'ring-2 ring-stone-800 bg-stone-50 z-10' : 'hover:bg-stone-50/50'}`}>
+                                             className={`aspect-square relative border border-stone-50 flex flex-col items-center justify-end p-0.5 cursor-pointer transition-all rounded-lg ${isSelected ? 'ring-2 ring-stone-800 bg-stone-50 z-10 shadow-sm scale-105' : 'hover:bg-stone-50/50'}`}>
                                             <span className={`absolute top-0.5 left-1 text-[7px] font-bold ${isSelected ? 'text-stone-800' : 'text-stone-200'}`}>{day}</span>
                                             <TreeGraphic entries={dayEntries} size="small" />
                                         </div>
@@ -240,32 +241,32 @@
                             {selectedDate.toLocaleDateString('ja-JP', {month:'long', day:'numeric', weekday:'short'})}
                         </h3>
                         <div className="relative w-full flex-1 bg-stone-50/40 rounded-[3rem] overflow-hidden border border-stone-100 flex items-end justify-center p-6 shadow-inner">
-                            <div className="absolute bottom-4 w-full flex justify-center scale-[1.6]">
+                            <div className="absolute bottom-4 w-full flex justify-center scale-[1.7]">
                                 <TreeGraphic entries={currentEntries} />
                             </div>
                             
                             <div className="relative z-10 w-full h-full mb-12">
                                 {currentEntries.map((item, idx) => (
                                     <div key={item.id} className="absolute item-float group" style={{top: `${15+(idx%5)*15}%`, left: `${15+(idx%4)*22}%`, transform: 'translate(-50%, -50%)'}}>
-                                        <div className="p-1 bg-white shadow-xl rounded-2xl border border-stone-100 relative">
+                                        <div className="p-1.5 bg-white shadow-2xl rounded-2xl border border-stone-50 relative transition-all hover:scale-110">
                                             {item.image_data ? 
                                                 <img src={item.image_data} className="w-16 h-16 object-cover rounded-xl" /> :
-                                                <div className="w-16 h-16 flex items-center justify-center bg-stone-50 rounded-xl text-[9px] text-stone-500 text-center leading-tight px-2 font-medium overflow-hidden">
+                                                <div className="w-16 h-16 flex items-center justify-center bg-stone-50 rounded-xl text-[9px] text-stone-500 text-center leading-tight px-2 font-medium overflow-hidden italic">
                                                     {item.message}
                                                 </div>
                                             }
                                             {item.image_data && item.message && (
-                                                <div className="absolute -bottom-2 -left-2 bg-white/90 backdrop-blur-sm px-2 py-1 rounded-md text-[7px] shadow-sm max-w-[80px] truncate border border-stone-50">
+                                                <div className="absolute -bottom-2 -left-2 bg-white/95 backdrop-blur-md px-2 py-1 rounded-md text-[7px] shadow-sm max-w-[80px] truncate border border-stone-100 text-stone-600 font-medium">
                                                     {item.message}
                                                 </div>
                                             )}
                                             <button 
                                                 onClick={(e) => { e.stopPropagation(); handleDeleteEntry(item.id); }}
-                                                className="absolute -top-2 -right-2 bg-red-400 text-white p-1.5 rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-opacity z-20"
+                                                className="absolute -top-2 -right-2 bg-red-400 text-white p-1.5 rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-opacity z-20 hover:bg-red-500"
                                             >
                                                 <Icons.X />
                                             </button>
-                                            <div className="absolute -bottom-1 -right-1 w-3 h-3 rounded-full border-2 border-white shadow-sm" style={{backgroundColor: item.color}} />
+                                            <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-white shadow-sm" style={{backgroundColor: item.color}} />
                                         </div>
                                     </div>
                                 ))}
@@ -274,22 +275,22 @@
                     </section>
 
                     <div className={`fixed inset-0 z-40 pointer-events-none transition-opacity duration-500 ${isFormOpen ? 'bg-stone-900/10 pointer-events-auto opacity-100' : 'opacity-0'}`} onClick={() => setIsFormOpen(false)} />
-                    <div className={`fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t border-stone-100 rounded-t-[3.5rem] shadow-[0_-20px_50px_rgba(0,0,0,0.1)] z-50 transition-transform duration-500 ease-in-out ${isFormOpen ? 'translate-y-0 h-1/2' : 'translate-y-[calc(100%-64px)] h-auto'}`}>
+                    <div className={`fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t border-stone-50 rounded-t-[3.5rem] shadow-[0_-20px_50px_rgba(0,0,0,0.08)] z-50 transition-transform duration-500 ease-in-out ${isFormOpen ? 'translate-y-0 h-1/2' : 'translate-y-[calc(100%-64px)] h-auto'}`}>
                         <button onClick={() => setIsFormOpen(!isFormOpen)} className="w-full h-16 flex flex-col items-center justify-center text-stone-200 hover:text-stone-400 transition-colors">
                             <div className="w-12 h-1 bg-stone-100 rounded-full mb-2" />
-                            {!isFormOpen && <span className="text-[10px] font-bold tracking-[0.3em] text-stone-300 uppercase font-serif italic">New Memory</span>}
+                            {!isFormOpen && <span className="text-[10px] font-bold tracking-[0.4em] text-stone-300 uppercase italic font-serif">New Memory</span>}
                         </button>
                         <div className="px-8 pb-10 pt-2 space-y-6 overflow-y-auto no-scrollbar h-[calc(100%-64px)]">
                             <div className="flex gap-3 overflow-x-auto no-scrollbar py-2">
                                 {['#FAF9F6', '#ff85a2', '#f472b6', '#a78bfa', '#60a5fa', '#34d399', '#fbbf24', '#f87171', '#555555'].map(c => (
-                                    <button key={c} onClick={() => setEntryIn({...entryIn, color: c})} className={`w-8 h-8 rounded-full border shrink-0 transition-all ${entryIn.color === c ? 'ring-2 ring-stone-800 scale-110 shadow-md' : 'border-stone-100'}`} style={{backgroundColor: c}} />
+                                    <button key={c} onClick={() => setEntryIn({...entryIn, color: c})} className={`w-8 h-8 rounded-full border shrink-0 transition-all ${entryIn.color === c ? 'ring-2 ring-stone-800 scale-110 shadow-md' : 'border-stone-100 hover:scale-105'}`} style={{backgroundColor: c}} />
                                 ))}
                             </div>
                             <div className="flex gap-4 items-start">
                                 <div className="flex flex-col items-center gap-2">
-                                    <label className="w-16 h-16 shrink-0 flex items-center justify-center bg-stone-50 rounded-[1.5rem] text-stone-300 border shadow-sm cursor-pointer hover:bg-stone-100 transition-colors overflow-hidden relative group">
+                                    <label className="w-16 h-16 shrink-0 flex items-center justify-center bg-stone-50 rounded-[1.5rem] text-stone-300 border border-stone-100 shadow-sm cursor-pointer hover:bg-stone-100 transition-all overflow-hidden relative group">
                                         {entryIn.photo ? (
-                                            <img src={entryIn.photo} className="w-full h-full object-cover" />
+                                            <img src={entryIn.photo} className="w-full h-full object-cover transition-transform group-hover:scale-110" />
                                         ) : (
                                             <Icons.Camera />
                                         )}
@@ -300,21 +301,21 @@
                                         }} />
                                     </label>
                                     {entryIn.photo && (
-                                        <button onClick={() => setEntryIn({...entryIn, photo: null})} className="text-[8px] text-red-400 font-bold uppercase tracking-widest">Remove</button>
+                                        <button onClick={() => setEntryIn({...entryIn, photo: null})} className="text-[8px] text-red-400 font-bold uppercase tracking-widest hover:text-red-600 transition-colors">Remove</button>
                                     )}
                                 </div>
                                 <div className="flex-1 flex flex-col gap-4">
-                                    <textarea placeholder="今、この瞬間の想いを..." rows={4} className="w-full bg-stone-50 rounded-[1.5rem] p-4 text-sm outline-none resize-none border border-stone-100 shadow-inner" value={entryIn.message} onChange={e => setEntryIn({...entryIn, message: e.target.value})} />
+                                    <textarea placeholder="今、この瞬間の想いを..." rows={4} className="w-full bg-stone-50 rounded-[1.5rem] p-4 text-sm outline-none resize-none border border-stone-100 shadow-inner focus:bg-white transition-colors" value={entryIn.message} onChange={e => setEntryIn({...entryIn, message: e.target.value})} />
                                     <button 
                                         onClick={handleAddEntry} 
                                         disabled={isButtonDisabled} 
                                         className={`w-full py-4 rounded-[1.5rem] flex items-center justify-center font-bold shadow-lg active:scale-95 transition-all
                                             ${isButtonDisabled 
-                                                ? 'bg-stone-200 text-stone-400 cursor-not-allowed' 
+                                                ? 'bg-stone-100 text-stone-300 cursor-not-allowed' 
                                                 : 'bg-stone-800 text-white hover:bg-stone-900 shadow-stone-200'}`}
                                     >
                                         {!fbReady ? (
-                                            <span className="flex items-center gap-2 tracking-widest uppercase text-[10px]">
+                                            <span className="flex items-center gap-2 tracking-widest uppercase text-[10px] font-bold">
                                                 <Icons.Loader /> {errorMsg ? 'ERROR' : 'CONNECTING...'}
                                             </span>
                                         ) : isSaving ? (
@@ -323,7 +324,7 @@
                                             '想い出を庭園に飾る'
                                         )}
                                     </button>
-                                    {errorMsg && <p className="text-[8px] text-red-400 text-center uppercase tracking-tighter mt-1">{errorMsg}</p>}
+                                    {errorMsg && <p className="text-[8px] text-red-400 text-center uppercase tracking-tighter mt-1 font-bold">{errorMsg}</p>}
                                 </div>
                             </div>
                         </div>
