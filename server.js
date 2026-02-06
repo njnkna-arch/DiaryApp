@@ -4,32 +4,23 @@ const crypto = require('crypto');
 require('dotenv').config();
 
 const app = express();
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: '20mb' })); // 写真などの大容量データ対応
+app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
-// publicフォルダ内の静的ファイル（index.html等）を配信
 app.use(express.static('public'));
 
-/**
- * データベース接続プール
- * Railwayの環境変数を自動で読み込みます
- */
 const pool = mysql.createPool({
     host: process.env.MYSQLHOST,
     user: process.env.MYSQLUSER,
     password: process.env.MYSQLPASSWORD,
     database: process.env.MYSQLDATABASE,
     port: process.env.MYSQLPORT || 3306,
-    ssl: {
-        rejectUnauthorized: false // 外部接続時のSSLエラーを論理的に回避
-    },
+    ssl: { rejectUnauthorized: false },
     waitForConnections: true,
     connectionLimit: 10
 });
 
-// --- API エンドポイント ---
-
-// 1. 庭園（グループ）一覧取得
+// 1. 庭園一覧
 app.get('/api/list', async (req, res) => {
     try {
         const [rows] = await pool.query('SELECT group_id, group_name, host_name, updated_at FROM DIARY_GROUPS ORDER BY updated_at DESC');
@@ -39,7 +30,7 @@ app.get('/api/list', async (req, res) => {
     }
 });
 
-// 2. 新規庭園の作成
+// 2. 新規庭園作成
 app.post('/api/create', async (req, res) => {
     try {
         const { name, host, pass } = req.body;
@@ -54,18 +45,18 @@ app.post('/api/create', async (req, res) => {
     }
 });
 
-// 3. 投稿の取得
+// 3. 投稿取得
 app.get('/api/entries', async (req, res) => {
     try {
         const { groupId } = req.query;
-        const [rows] = await pool.query('SELECT * FROM DIARY_ENTRIES WHERE group_id = ? ORDER BY diary_date ASC', [groupId]);
+        const [rows] = await pool.query('SELECT * FROM DIARY_ENTRIES WHERE group_id = ? ORDER BY created_at ASC', [groupId]);
         res.json(rows);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// 4. 投稿の追加
+// 4. 投稿追加
 app.post('/api/addEntry', async (req, res) => {
     try {
         const { groupId, date, message, photo, color } = req.body;
@@ -80,7 +71,32 @@ app.post('/api/addEntry', async (req, res) => {
     }
 });
 
+// 5. 投稿削除 (追加)
+app.post('/api/deleteEntry', async (req, res) => {
+    try {
+        const { entryId } = req.body;
+        await pool.query('DELETE FROM DIARY_ENTRIES WHERE id = ?', [entryId]);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 6. 閉園（庭園削除） (追加)
+app.post('/api/closeGarden', async (req, res) => {
+    try {
+        const { groupId } = req.body;
+        // 関連する投稿を全削除
+        await pool.query('DELETE FROM DIARY_ENTRIES WHERE group_id = ?', [groupId]);
+        // 庭園自体を削除
+        await pool.query('DELETE FROM DIARY_GROUPS WHERE group_id = ?', [groupId]);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
-    console.log(`--- LUMINA Node Server started on port ${PORT} ---`);
+    console.log(`--- LUMINA Server started on ${PORT} ---`);
 });
