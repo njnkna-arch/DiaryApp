@@ -21,13 +21,15 @@ public class LuminaServlet extends HttpServlet {
 
         try (Connection conn = DBConnection.getConnection()) {
             if ("list".equals(action)) {
+                // グループ一覧取得
                 String sql = "SELECT group_id, group_name, host_name, updated_at FROM DIARY_GROUPS ORDER BY updated_at DESC";
                 try (PreparedStatement stmt = conn.prepareStatement(sql); ResultSet rs = stmt.executeQuery()) {
                     out.print(resultSetToJson(rs));
                 }
             } else if ("getEntries".equals(action)) {
+                // 特定の日記内の投稿取得
                 String gid = request.getParameter("groupId");
-                String sql = "SELECT id, diary_date, message, image_data, color FROM DIARY_ENTRIES WHERE group_id = ? ORDER BY diary_date ASC, created_at ASC";
+                String sql = "SELECT id, diary_date, message, image_data, color FROM DIARY_ENTRIES WHERE group_id = ? ORDER BY diary_date ASC";
                 try (PreparedStatement stmt = conn.prepareStatement(sql)) {
                     stmt.setString(1, gid);
                     try (ResultSet rs = stmt.executeQuery()) {
@@ -61,6 +63,7 @@ public class LuminaServlet extends HttpServlet {
                     out.print("{\"success\":true, \"id\":\"" + id + "\"}");
                 }
             } else if ("addEntry".equals(action)) {
+                // 投稿の追加
                 String sql = "INSERT INTO DIARY_ENTRIES (group_id, diary_date, message, image_data, color) VALUES (?, ?, ?, ?, ?)";
                 try (PreparedStatement stmt = conn.prepareStatement(sql)) {
                     stmt.setString(1, request.getParameter("groupId"));
@@ -70,6 +73,7 @@ public class LuminaServlet extends HttpServlet {
                     stmt.setString(5, request.getParameter("color"));
                     stmt.executeUpdate();
                 }
+                // 更新日時を更新
                 String updateSql = "UPDATE DIARY_GROUPS SET updated_at = NOW() WHERE group_id = ?";
                 try (PreparedStatement upStmt = conn.prepareStatement(updateSql)) {
                     upStmt.setString(1, request.getParameter("groupId"));
@@ -87,9 +91,9 @@ public class LuminaServlet extends HttpServlet {
         StringBuilder sb = new StringBuilder("[");
         ResultSetMetaData md = rs.getMetaData();
         int cols = md.getColumnCount();
-        boolean first = true;
+        boolean firstLine = true;
         while (rs.next()) {
-            if (!first) sb.append(",");
+            if (!firstLine) sb.append(",");
             sb.append("{");
             for (int i = 1; i <= cols; i++) {
                 String key = md.getColumnLabel(i);
@@ -99,7 +103,7 @@ public class LuminaServlet extends HttpServlet {
                 if (i < cols) sb.append(",");
             }
             sb.append("}");
-            first = false;
+            firstLine = false;
         }
         return sb.append("]").toString();
     }
