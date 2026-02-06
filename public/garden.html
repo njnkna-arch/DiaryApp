@@ -23,10 +23,11 @@
 <body>
     <div id="root"></div>
 
+    <!-- Firebase SDKs -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, onSnapshot, doc, deleteDoc, query, getDocs, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, onSnapshot, doc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         try {
             const firebaseConfig = JSON.parse(__firebase_config);
@@ -35,10 +36,9 @@
             const db = getFirestore(app);
             const appId = typeof __app_id !== 'undefined' ? __app_id : 'lumina-garden-v1';
 
-            window.FB_MODULES = { auth, db, appId, collection, addDoc, onSnapshot, doc, deleteDoc, query, getDocs, where, signInAnonymously, signInWithCustomToken, onAuthStateChanged };
+            window.FB_MODULES = { auth, db, appId, collection, addDoc, onSnapshot, signInAnonymously, signInWithCustomToken, onAuthStateChanged };
         } catch (e) {
-            console.error("Firebase initialization failed:", e);
-            window.FB_ERROR = e.message;
+            console.error("Firebase init failed:", e);
         }
     </script>
 
@@ -50,14 +50,12 @@
             ChevronRight: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>,
             Camera: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>,
             Home: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>,
-            Trash: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>,
-            X: () => <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>,
             Loader: () => <svg className="animate-spin" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
         };
 
         const TreeGraphic = ({ entries = [], size = "large" }) => {
             const count = entries.length;
-            const scale = count >= 10 ? 1.5 : count >= 5 ? 1.25 : 1.0;
+            const scale = count >= 10 ? 1.6 : count >= 5 ? 1.3 : 1.0;
             const w = size === "small" ? 48 : 400;
             const h = size === "small" ? 34 : 260;
             
@@ -84,11 +82,8 @@
             const [isFormOpen, setIsFormOpen] = useState(false);
             const [isSaving, setIsSaving] = useState(false);
             const [entryIn, setEntryIn] = useState({ message: '', photo: null, color: '#FAF9F6' });
-            const [errorMsg, setErrorMsg] = useState(window.FB_ERROR || null);
 
-            const COLLECTION_NAME = 'diary_entries';
-
-            // Firebase 認証の初期化
+            // 1. Firebase認証処理の安定化
             useEffect(() => {
                 const interval = setInterval(async () => {
                     if (window.FB_MODULES) {
@@ -102,8 +97,7 @@
                             }
                             setFbReady(true);
                         } catch (err) {
-                            console.error("Auth failed:", err);
-                            setErrorMsg("認証エラーが発生しました。");
+                            console.error("Auth error:", err);
                         }
                         onAuthStateChanged(auth, setUser);
                     }
@@ -111,19 +105,17 @@
                 return () => clearInterval(interval);
             }, []);
 
-            // データのリアルタイム同期
+            // 2. データ同期
             useEffect(() => {
                 if (!user || !fbReady || !window.FB_MODULES) return;
                 const { db, appId, collection, onSnapshot } = window.FB_MODULES;
-                const colRef = collection(db, 'artifacts', appId, 'public', 'data', COLLECTION_NAME);
+                const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'diary_entries');
                 
                 const unsubscribe = onSnapshot(colRef, (snap) => {
                     const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-                    // groupIdに基づいて厳格にフィルタリング
                     setEntries(data.filter(e => e.groupId === groupId));
                 }, (error) => {
-                    console.error("Firestore sync error:", error);
-                    setErrorMsg("データの読み込みに失敗しました。");
+                    console.error("Sync error:", error);
                 });
                 return () => unsubscribe();
             }, [user, fbReady, groupId]);
@@ -139,15 +131,22 @@
                 return days;
             }, [currentMonth]);
 
+            const getFormattedDate = (date) => {
+                const y = date.getFullYear();
+                const m = String(date.getMonth() + 1).padStart(2, '0');
+                const d = String(date.getDate()).padStart(2, '0');
+                return `${y}-${m}-${d}`;
+            };
+
             const handleAddEntry = async () => {
                 if ((!entryIn.message.trim() && !entryIn.photo) || !fbReady || isSaving || !user) return;
                 const { db, appId, collection, addDoc } = window.FB_MODULES;
                 
                 setIsSaving(true);
                 try {
-                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', COLLECTION_NAME), {
+                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'diary_entries'), {
                         groupId,
-                        diary_date: selectedDate.toISOString().split('T')[0],
+                        diary_date: getFormattedDate(selectedDate),
                         message: entryIn.message.trim(),
                         image_data: entryIn.photo,
                         color: entryIn.color,
@@ -157,33 +156,14 @@
                     setIsFormOpen(false);
                 } catch (e) { 
                     console.error("Save Error:", e);
-                    alert("保存に失敗しました。画像のサイズを小さくしてお試しください。");
+                    alert("保存に失敗しました。画像のサイズが大きい可能性があります。");
                 } finally {
                     setIsSaving(false);
                 }
             };
 
-            const handleDeleteEntry = async (id) => {
-                if (!window.confirm("本当にこの想い出を削除しますか？")) return;
-                const { db, appId, doc, deleteDoc } = window.FB_MODULES;
-                try {
-                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', COLLECTION_NAME, id));
-                } catch (e) { alert("削除できませんでした。"); }
-            };
-
-            const handleCloseGarden = async () => {
-                if (!window.confirm("本当に閉園しますか？\n全ての記録が消去され、元に戻せません。")) return;
-                const { db, appId, doc, deleteDoc } = window.FB_MODULES;
-                try {
-                    for (const entry of entries) {
-                        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', COLLECTION_NAME, entry.id));
-                    }
-                    window.location.href = 'index.html';
-                } catch (e) { alert("閉園処理に失敗しました。"); }
-            };
-
             const currentEntries = useMemo(() => {
-                const ds = selectedDate.toISOString().split('T')[0];
+                const ds = getFormattedDate(selectedDate);
                 return entries.filter(e => e.diary_date === ds);
             }, [entries, selectedDate]);
 
@@ -192,16 +172,14 @@
             return (
                 <div className="max-w-md mx-auto h-screen bg-white flex flex-col relative overflow-hidden fade-in">
                     <header className="flex justify-between items-center px-6 pt-6 pb-2 shrink-0 z-20">
-                        <button onClick={() => window.location.href = 'index.html'} className="p-2 text-stone-400 hover:bg-stone-50 rounded-full transition-colors shadow-sm">
+                        <button onClick={() => window.location.href = 'index.html'} className="p-2 text-stone-400 hover:bg-stone-50 rounded-full transition-colors">
                             <Icons.Home />
                         </button>
                         <div className="text-center">
-                            <h1 className="text-sm font-bold text-stone-300 tracking-[0.4em] uppercase">LUMINA</h1>
+                            <h1 className="text-sm font-bold text-stone-300 tracking-[0.4em] uppercase font-serif italic">LUMINA</h1>
                             <p className="text-[9px] text-stone-400 font-mono tracking-tighter opacity-70">ID: {groupId}</p>
                         </div>
-                        <button onClick={handleCloseGarden} className="p-2 text-stone-300 hover:text-red-400 hover:bg-red-50 rounded-full transition-colors shadow-sm">
-                            <Icons.Trash />
-                        </button>
+                        <div className="w-10"></div>
                     </header>
 
                     <section className="px-6 py-2 shrink-0 z-10">
@@ -226,7 +204,7 @@
                                     const isSelected = selectedDate.getDate() === day && selectedDate.getMonth() === currentMonth.getMonth();
                                     return (
                                         <div key={day} onClick={() => setSelectedDate(new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day))} 
-                                             className={`aspect-square relative border border-stone-50 flex flex-col items-center justify-end p-0.5 cursor-pointer transition-all rounded-lg ${isSelected ? 'ring-2 ring-stone-800 bg-stone-50 z-10 shadow-sm scale-105' : 'hover:bg-stone-50/50'}`}>
+                                             className={`aspect-square relative border border-stone-50 flex flex-col items-center justify-end p-0.5 cursor-pointer transition-all rounded-lg ${isSelected ? 'ring-2 ring-stone-800 bg-stone-50 z-10 shadow-sm' : 'hover:bg-stone-50/50'}`}>
                                             <span className={`absolute top-0.5 left-1 text-[7px] font-bold ${isSelected ? 'text-stone-800' : 'text-stone-200'}`}>{day}</span>
                                             <TreeGraphic entries={dayEntries} size="small" />
                                         </div>
@@ -248,7 +226,7 @@
                             <div className="relative z-10 w-full h-full mb-12">
                                 {currentEntries.map((item, idx) => (
                                     <div key={item.id} className="absolute item-float group" style={{top: `${15+(idx%5)*15}%`, left: `${15+(idx%4)*22}%`, transform: 'translate(-50%, -50%)'}}>
-                                        <div className="p-1.5 bg-white shadow-2xl rounded-2xl border border-stone-50 relative transition-all hover:scale-110">
+                                        <div className="p-1.5 bg-white shadow-2xl rounded-2xl border border-stone-50 relative">
                                             {item.image_data ? 
                                                 <img src={item.image_data} className="w-16 h-16 object-cover rounded-xl" /> :
                                                 <div className="w-16 h-16 flex items-center justify-center bg-stone-50 rounded-xl text-[9px] text-stone-500 text-center leading-tight px-2 font-medium overflow-hidden italic">
@@ -260,12 +238,6 @@
                                                     {item.message}
                                                 </div>
                                             )}
-                                            <button 
-                                                onClick={(e) => { e.stopPropagation(); handleDeleteEntry(item.id); }}
-                                                className="absolute -top-2 -right-2 bg-red-400 text-white p-1.5 rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-opacity z-20 hover:bg-red-500"
-                                            >
-                                                <Icons.X />
-                                            </button>
                                             <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-white shadow-sm" style={{backgroundColor: item.color}} />
                                         </div>
                                     </div>
@@ -283,25 +255,27 @@
                         <div className="px-8 pb-10 pt-2 space-y-6 overflow-y-auto no-scrollbar h-[calc(100%-64px)]">
                             <div className="flex gap-3 overflow-x-auto no-scrollbar py-2">
                                 {['#FAF9F6', '#ff85a2', '#f472b6', '#a78bfa', '#60a5fa', '#34d399', '#fbbf24', '#f87171', '#555555'].map(c => (
-                                    <button key={c} onClick={() => setEntryIn({...entryIn, color: c})} className={`w-8 h-8 rounded-full border shrink-0 transition-all ${entryIn.color === c ? 'ring-2 ring-stone-800 scale-110 shadow-md' : 'border-stone-100 hover:scale-105'}`} style={{backgroundColor: c}} />
+                                    <button key={c} onClick={() => setEntryIn({...entryIn, color: c})} className={`w-8 h-8 rounded-full border shrink-0 transition-all ${entryIn.color === c ? 'ring-2 ring-stone-800 scale-110 shadow-md' : 'border-stone-100'}`} style={{backgroundColor: c}} />
                                 ))}
                             </div>
                             <div className="flex gap-4 items-start">
                                 <div className="flex flex-col items-center gap-2">
                                     <label className="w-16 h-16 shrink-0 flex items-center justify-center bg-stone-50 rounded-[1.5rem] text-stone-300 border border-stone-100 shadow-sm cursor-pointer hover:bg-stone-100 transition-all overflow-hidden relative group">
                                         {entryIn.photo ? (
-                                            <img src={entryIn.photo} className="w-full h-full object-cover transition-transform group-hover:scale-110" />
+                                            <img src={entryIn.photo} className="w-full h-full object-cover" />
                                         ) : (
                                             <Icons.Camera />
                                         )}
                                         <input type="file" className="hidden" accept="image/*" onChange={(e) => { 
+                                            const file = e.target.files[0];
+                                            if (!file) return;
                                             const r = new FileReader(); 
                                             r.onload = () => setEntryIn({...entryIn, photo: r.result}); 
-                                            if(e.target.files[0]) r.readAsDataURL(e.target.files[0]); 
+                                            r.readAsDataURL(file); 
                                         }} />
                                     </label>
                                     {entryIn.photo && (
-                                        <button onClick={() => setEntryIn({...entryIn, photo: null})} className="text-[8px] text-red-400 font-bold uppercase tracking-widest hover:text-red-600 transition-colors">Remove</button>
+                                        <button onClick={() => setEntryIn({...entryIn, photo: null})} className="text-[8px] text-red-400 font-bold uppercase tracking-widest">Remove</button>
                                     )}
                                 </div>
                                 <div className="flex-1 flex flex-col gap-4">
@@ -311,12 +285,12 @@
                                         disabled={isButtonDisabled} 
                                         className={`w-full py-4 rounded-[1.5rem] flex items-center justify-center font-bold shadow-lg active:scale-95 transition-all
                                             ${isButtonDisabled 
-                                                ? 'bg-stone-100 text-stone-300 cursor-not-allowed' 
-                                                : 'bg-stone-800 text-white hover:bg-stone-900 shadow-stone-200'}`}
+                                                ? 'bg-stone-100 text-stone-300 cursor-not-allowed border border-stone-50' 
+                                                : 'bg-stone-800 text-white hover:bg-stone-900'}`}
                                     >
                                         {!fbReady ? (
                                             <span className="flex items-center gap-2 tracking-widest uppercase text-[10px] font-bold">
-                                                <Icons.Loader /> {errorMsg ? 'ERROR' : 'CONNECTING...'}
+                                                <Icons.Loader /> CONNECTING...
                                             </span>
                                         ) : isSaving ? (
                                             <Icons.Loader />
@@ -324,7 +298,6 @@
                                             '想い出を庭園に飾る'
                                         )}
                                     </button>
-                                    {errorMsg && <p className="text-[8px] text-red-400 text-center uppercase tracking-tighter mt-1 font-bold">{errorMsg}</p>}
                                 </div>
                             </div>
                         </div>
