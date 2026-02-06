@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>LUMINA - Garden</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -10,7 +10,14 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
     <style>
-        body { font-family: 'Inter', sans-serif; background-color: #faf9f6; color: #44403c; overflow-x: hidden; overflow-y: auto; }
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background-color: #faf9f6; 
+            color: #44403c; 
+            overflow-x: hidden; 
+            overflow-y: auto;
+            touch-action: pan-y;
+        }
         .font-serif { font-family: 'Playfair Display', serif; }
         .fade-in { animation: fadeIn 0.4s ease-out forwards; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
@@ -18,6 +25,9 @@
         .item-float { animation: float 6s ease-in-out infinite; }
         @keyframes float { 0%, 100% { transform: translate(-50%, -52%) scale(1); } 50% { transform: translate(-50%, -48%) scale(1.05); } }
         .no-scrollbar::-webkit-scrollbar { display: none; }
+        .glass-black { background: rgba(23, 23, 23, 0.95); backdrop-filter: blur(12px); }
+        /* スケッチのような広いアーチヘッダーのためのカスタム形状 */
+        .header-arch { border-radius: 0 0 4rem 4rem; }
     </style>
 </head>
 <body>
@@ -35,11 +45,8 @@
             Loader: () => <svg className="animate-spin" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" fill="none"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
         };
 
-        const TreeGraphic = ({ entries = [], size = "large" }) => {
+        const TreeGraphic = ({ entries = [] }) => {
             const count = entries.length;
-            const w = size === "small" ? 48 : "100%";
-            const h = size === "small" ? 34 : "100%";
-            
             const canopyColor = useMemo(() => {
                 if (count === 0) return "#f1f5f9";
                 let r = 0, g = 0, b = 0;
@@ -49,15 +56,13 @@
                     g += parseInt(hex.substring(3, 5), 16);
                     b += parseInt(hex.substring(5, 7), 16);
                 });
-                const avgR = Math.round(r / count).toString(16).padStart(2, '0');
-                const avgG = Math.round(g / count).toString(16).padStart(2, '0');
-                const avgB = Math.round(b / count).toString(16).padStart(2, '0');
-                return `#${avgR}${avgG}${avgB}`;
+                const avg = (val) => Math.round(val / count).toString(16).padStart(2, '0');
+                return `#${avg(r)}${avg(g)}${avg(b)}`;
             }, [entries]);
 
             return (
                 <div className="w-full h-full flex items-center justify-center tree-transition">
-                    <svg width={w} height={h} viewBox="0 0 200 120" preserveAspectRatio="xMidYMid meet">
+                    <svg width="100%" height="100%" viewBox="0 0 200 120" preserveAspectRatio="xMidYMid meet">
                         <path d="M90 120 Q100 115 100 100 T110 120" fill="#8b7e74" />
                         <path d="M5 90 Q5 10 100 5 T195 90 Q195 110 100 115 T5 90" fill={canopyColor} opacity="0.85" />
                         <path d="M100 100 L100 50 M100 85 L40 65 M100 80 L160 60 M100 70 L65 35 M100 65 L135 30" stroke="#fff" strokeWidth="1" opacity="0.4" fill="none" />
@@ -75,7 +80,10 @@
             const [entries, setEntries] = useState([]);
             const [isFormOpen, setIsFormOpen] = useState(false);
             const [isSaving, setIsSaving] = useState(false);
-            const [entryIn, setEntryIn] = useState({ message: '', photo: null, color: '#FAF9F6' });
+            const [entryIn, setEntryIn] = useState({ message: '', photo: null, color: '#60a5fa' });
+            
+            // モーダル管理
+            const [confirmModal, setConfirmModal] = useState({ show: false, type: '', target: null });
 
             const fetchEntries = () => {
                 fetch(`/api/entries?groupId=${groupId}`)
@@ -84,18 +92,16 @@
                     .catch(console.error);
             };
 
-            useEffect(() => {
-                fetchEntries();
-            }, [groupId]);
+            useEffect(() => fetchEntries(), [groupId]);
 
             const calendarDays = useMemo(() => {
                 const year = currentMonth.getFullYear();
                 const month = currentMonth.getMonth();
                 const firstDay = new Date(year, month, 1).getDay();
-                const lastDate = new Date(year, month + 1, 0).getDate();
+                const daysInMonth = new Date(year, month + 1, 0).getDate();
                 const days = [];
                 for (let i = 0; i < firstDay; i++) days.push(null);
-                for (let i = 1; i <= lastDate; i++) days.push(i);
+                for (let i = 1; i <= daysInMonth; i++) days.push(i);
                 return days;
             }, [currentMonth]);
 
@@ -109,49 +115,31 @@
             const handleAddEntry = async () => {
                 const msg = entryIn.message.trim();
                 if ((!msg && !entryIn.photo) || isSaving) return;
-                
                 setIsSaving(true);
                 try {
                     const res = await fetch('/api/addEntry', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            groupId,
-                            date: getFormattedDate(selectedDate),
-                            message: msg,
-                            photo: entryIn.photo,
-                            color: entryIn.color
-                        })
+                        body: JSON.stringify({ groupId, date: getFormattedDate(selectedDate), message: msg, photo: entryIn.photo, color: entryIn.color })
                     });
-                    const data = await res.json();
-                    if(data.success) {
+                    if((await res.json()).success) {
                         fetchEntries();
-                        setEntryIn({ message: '', photo: null, color: '#FAF9F6' });
+                        setEntryIn({ message: '', photo: null, color: '#60a5fa' });
                         setIsFormOpen(false);
                     }
-                } catch (e) { alert("保存できませんでした"); }
+                } catch (e) { console.error(e); }
                 finally { setIsSaving(false); }
             };
 
-            const handleDeleteEntry = (id) => {
-                if(!confirm("この記録を削除しますか？")) return;
-                fetch('/api/deleteEntry', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ entryId: id })
-                }).then(() => fetchEntries());
-            };
-
-            const handleCloseGarden = () => {
-                if(!confirm("本当に閉園しますか？\n庭園とすべての記録が消去され、元に戻せません。")) return;
-                fetch('/api/closeGarden', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ groupId })
-                }).then(() => {
-                    alert("庭園を閉鎖しました");
+            const executeDelete = async () => {
+                if(confirmModal.type === 'entry') {
+                    await fetch('/api/deleteEntry', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entryId: confirmModal.target }) });
+                    fetchEntries();
+                } else if(confirmModal.type === 'garden') {
+                    await fetch('/api/closeGarden', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ groupId }) });
                     window.location.href = 'index.html';
-                });
+                }
+                setConfirmModal({ show: false, type: '', target: null });
             };
 
             const currentEntries = useMemo(() => {
@@ -160,39 +148,44 @@
             }, [entries, selectedDate]);
 
             return (
-                <div className="max-w-md mx-auto min-h-screen bg-white flex flex-col relative fade-in">
-                    {/* アップデート：ブラックラウンドヘッダー */}
-                    <header className="sticky top-4 z-20 mx-4 bg-stone-900 text-white rounded-[2.5rem] shadow-2xl flex justify-between items-center px-4 py-3 shrink-0">
-                        <button 
-                            onClick={() => window.location.href = 'index.html'} 
-                            className="w-11 h-11 flex items-center justify-center bg-white/10 hover:bg-white/20 rounded-full transition-all active:scale-90"
-                        >
-                            <Icons.Home />
-                        </button>
-                        <div className="text-center">
-                            <h1 className="text-base font-bold tracking-[0.4em] uppercase italic font-serif">LUMINA</h1>
-                            <p className="text-[8px] text-white/50 font-mono tracking-tighter">ID: {groupId}</p>
-                        </div>
-                        <button 
-                            onClick={handleCloseGarden} 
-                            className="w-11 h-11 flex items-center justify-center bg-red-500/20 hover:bg-red-500/30 text-red-400 hover:text-red-300 rounded-full transition-all active:scale-90"
-                        >
-                            <Icons.Trash />
-                        </button>
-                    </header>
-
-                    <section className="px-6 py-8 shrink-0 z-10">
-                        <div className="flex justify-between items-center mb-4">
-                            <h2 className="text-3xl font-serif font-bold text-stone-800 tracking-tight">{currentMonth.getFullYear()}年 {currentMonth.getMonth() + 1}月</h2>
-                            <div className="flex gap-3">
-                                <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} className="w-10 h-10 flex items-center justify-center text-stone-300 hover:text-stone-600 hover:bg-stone-100 rounded-full transition-colors"><Icons.ChevronLeft /></button>
-                                <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} className="w-10 h-10 flex items-center justify-center text-stone-300 hover:text-stone-600 hover:bg-stone-100 rounded-full transition-colors"><Icons.ChevronRight /></button>
+                <div className="max-w-md mx-auto min-h-screen bg-[#faf9f6] flex flex-col relative fade-in select-none">
+                    
+                    {/* カスタムヘッダー (スケッチ image_812003.png 風) */}
+                    <div className="sticky top-0 z-40 px-4 pt-4 shrink-0">
+                        <div className="glass-black text-white header-arch shadow-2xl flex flex-col items-center justify-center py-6 px-4 relative overflow-hidden">
+                            <div className="flex w-full justify-between items-center z-10 px-2">
+                                <button 
+                                    onClick={() => window.location.href = 'index.html'} 
+                                    className="w-12 h-12 flex items-center justify-center bg-white/10 hover:bg-white/20 rounded-full transition-all active:scale-90"
+                                >
+                                    <Icons.Home />
+                                </button>
+                                <div className="text-center">
+                                    <h1 className="text-xl font-bold tracking-[0.5em] uppercase italic font-serif">LUMINA</h1>
+                                    <p className="text-[9px] text-white/40 font-mono tracking-tighter uppercase">Memory Garden ID: {groupId}</p>
+                                </div>
+                                <button 
+                                    onClick={() => setConfirmModal({ show: true, type: 'garden', target: null })} 
+                                    className="w-12 h-12 flex items-center justify-center bg-red-500/20 hover:bg-red-500/30 text-red-400 hover:text-red-300 rounded-full transition-all active:scale-90"
+                                >
+                                    <Icons.Trash />
+                                </button>
                             </div>
                         </div>
-                        <div className="bg-white rounded-[2.5rem] shadow-xl border border-stone-50 p-4">
-                            <div className="grid grid-cols-7 gap-1 text-center mb-2">
-                                {['日','月','火','水','木','金','土'].map((d, i) => (
-                                    <span key={d} className={`text-[10px] font-bold ${i===0 ? 'text-red-400' : i===6 ? 'text-blue-400' : 'text-stone-300'}`}>{d}</span>
+                    </div>
+
+                    <section className="px-6 py-8 shrink-0 z-10">
+                        <div className="flex justify-between items-center mb-5">
+                            <h2 className="text-3xl font-serif font-bold text-stone-800 tracking-tighter">{currentMonth.getFullYear()}年 {currentMonth.getMonth() + 1}月</h2>
+                            <div className="flex gap-4">
+                                <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} className="w-11 h-11 flex items-center justify-center text-stone-300 hover:text-stone-600 hover:bg-white rounded-full shadow-sm transition-all"><Icons.ChevronLeft /></button>
+                                <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} className="w-11 h-11 flex items-center justify-center text-stone-300 hover:text-stone-600 hover:bg-white rounded-full shadow-sm transition-all"><Icons.ChevronRight /></button>
+                            </div>
+                        </div>
+                        <div className="bg-white rounded-[3rem] shadow-xl border border-stone-50 p-5">
+                            <div className="grid grid-cols-7 gap-1 text-center mb-3">
+                                {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((d, i) => (
+                                    <span key={d} className={`text-[10px] font-bold uppercase tracking-tighter ${i===0 ? 'text-red-400' : i===6 ? 'text-blue-400' : 'text-stone-300'}`}>{d}</span>
                                 ))}
                             </div>
                             <div className="grid grid-cols-7 gap-2">
@@ -203,9 +196,9 @@
                                     const isSelected = selectedDate.getDate() === day && selectedDate.getMonth() === currentMonth.getMonth();
                                     return (
                                         <div key={day} onClick={() => setSelectedDate(new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day))} 
-                                             className={`aspect-square relative border border-stone-50 flex flex-col items-center justify-end p-0.5 cursor-pointer transition-all rounded-xl ${isSelected ? 'ring-2 ring-stone-800 bg-stone-50 z-10 shadow-sm scale-110' : 'hover:bg-stone-50/50'}`}>
-                                            <span className={`absolute top-1 left-1.5 text-[8px] font-bold ${isSelected ? 'text-stone-800' : 'text-stone-200'}`}>{day}</span>
-                                            <TreeGraphic entries={dayEntries} size="small" />
+                                             className={`aspect-square relative border border-stone-50 flex flex-col items-center justify-end p-0.5 cursor-pointer transition-all rounded-2xl ${isSelected ? 'ring-2 ring-stone-800 bg-stone-50 z-10 shadow-md scale-110' : 'hover:bg-stone-50/50'}`}>
+                                            <span className={`absolute top-1.5 left-2 text-[9px] font-bold ${isSelected ? 'text-stone-800' : 'text-stone-200'}`}>{day}</span>
+                                            <TreeGraphic entries={dayEntries} />
                                         </div>
                                     );
                                 })}
@@ -214,36 +207,37 @@
                     </section>
 
                     <section className="flex-1 px-6 py-4 flex flex-col relative z-10">
-                        <h3 className="text-xl font-serif font-bold text-stone-800 mb-4 px-2 tracking-wide">
+                        <h3 className="text-xl font-serif font-bold text-stone-800 mb-4 px-2 tracking-wide flex items-center gap-2">
+                            <div className="w-1 h-6 bg-stone-800 rounded-full"></div>
                             {selectedDate.toLocaleDateString('ja-JP', {month:'long', day:'numeric', weekday:'short'})}
                         </h3>
-                        <div className="relative w-full aspect-square bg-stone-50/40 rounded-[3rem] overflow-hidden border border-stone-100 flex items-center justify-center shadow-inner p-6 mb-32">
-                            <div className="w-full h-full max-w-full max-h-full">
+                        <div className="relative w-full aspect-square bg-stone-50/60 rounded-[4rem] overflow-hidden border border-stone-200/50 flex items-center justify-center shadow-inner p-10 mb-48">
+                            <div className="w-full h-full">
                                 <TreeGraphic entries={currentEntries} />
                             </div>
                             
                             <div className="absolute inset-0 pointer-events-none z-20">
                                 {currentEntries.map((item, idx) => (
                                     <div key={item.id} className="absolute item-float group pointer-events-auto" style={{top: `${15+(idx%5)*15}%`, left: `${15+(idx%4)*22}%`, transform: 'translate(-50%, -50%)'}}>
-                                        <div className="p-1.5 bg-white shadow-2xl rounded-2xl border border-stone-50 relative transition-all hover:scale-110 hover:z-30">
+                                        <div className="p-2 bg-white shadow-2xl rounded-3xl border border-stone-50 relative transition-all hover:scale-110 hover:z-30">
                                             {item.image_data ? 
-                                                <img src={item.image_data} className="w-20 h-20 object-cover rounded-xl shadow-sm" /> :
-                                                <div className="w-20 h-20 flex items-center justify-center bg-stone-50 rounded-xl text-[10px] text-stone-500 text-center leading-tight px-3 font-medium overflow-hidden italic shadow-inner">
+                                                <img src={item.image_data} className="w-24 h-24 object-cover rounded-2xl shadow-sm" /> :
+                                                <div className="w-24 h-24 flex items-center justify-center bg-stone-50 rounded-2xl text-[11px] text-stone-500 text-center leading-tight px-4 font-medium overflow-hidden italic shadow-inner">
                                                     {item.message}
                                                 </div>
                                             }
                                             {item.image_data && item.message && (
-                                                <div className="absolute -bottom-2 -left-2 bg-stone-900 text-white px-2 py-1 rounded-md text-[8px] shadow-sm max-w-[100px] truncate border border-stone-800 font-medium">
+                                                <div className="absolute -bottom-2 -left-2 bg-stone-900 text-white px-3 py-1.5 rounded-xl text-[9px] shadow-sm max-w-[120px] truncate border border-stone-800 font-medium">
                                                     {item.message}
                                                 </div>
                                             )}
                                             <button 
-                                                onClick={(e) => { e.stopPropagation(); handleDeleteEntry(item.id); }}
+                                                onClick={(e) => { e.stopPropagation(); setConfirmModal({ show: true, type: 'entry', target: item.id }); }}
                                                 className="absolute -top-3 -right-3 bg-red-500 text-white p-2 rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-opacity z-20 hover:bg-red-600 scale-90"
                                             >
                                                 <Icons.X />
                                             </button>
-                                            <div className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-white shadow-sm" style={{backgroundColor: item.color}} />
+                                            <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-white shadow-sm" style={{backgroundColor: item.color}} />
                                         </div>
                                     </div>
                                 ))}
@@ -251,22 +245,22 @@
                         </div>
                     </section>
 
-                    {/* 登録用ハーフシート - つまみ部分をさらに使いやすく調整 */}
-                    <div className={`fixed inset-0 z-40 pointer-events-none transition-opacity duration-500 ${isFormOpen ? 'bg-stone-900/10 pointer-events-auto opacity-100' : 'opacity-0'}`} onClick={() => setIsFormOpen(false)} />
-                    <div className={`fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t border-stone-100 rounded-t-[3.5rem] shadow-[0_-25px_60px_rgba(0,0,0,0.12)] z-50 transition-transform duration-500 ease-in-out ${isFormOpen ? 'translate-y-0 h-1/2' : 'translate-y-[calc(100%-80px)] h-auto'}`}>
-                        <button onClick={() => setIsFormOpen(!isFormOpen)} className="w-full h-20 flex flex-col items-center justify-center text-stone-200 hover:text-stone-400 transition-colors">
-                            <div className="w-14 h-1 bg-stone-100 rounded-full mb-3" />
-                            {!isFormOpen && <span className="text-[11px] font-bold tracking-[0.5em] text-stone-400 uppercase italic font-serif">NEW MEMORY</span>}
+                    {/* 登録用ハーフシート - カラー選択が見える高さ (160px) に調整 */}
+                    <div className={`fixed inset-0 z-40 pointer-events-none transition-opacity duration-500 ${isFormOpen ? 'bg-stone-900/20 pointer-events-auto opacity-100' : 'opacity-0'}`} onClick={() => setIsFormOpen(false)} />
+                    <div className={`fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t border-stone-100 rounded-t-[4rem] shadow-[0_-30px_70px_rgba(0,0,0,0.12)] z-50 transition-transform duration-500 ease-in-out ${isFormOpen ? 'translate-y-0 h-1/2' : 'translate-y-[calc(100%-160px)] h-auto'}`}>
+                        <button onClick={() => setIsFormOpen(!isFormOpen)} className="w-full h-20 flex flex-col items-center justify-center text-stone-200 hover:text-stone-400 transition-colors shrink-0">
+                            <div className="w-16 h-1 bg-stone-100 rounded-full mb-3" />
+                            {!isFormOpen && <span className="text-[11px] font-bold tracking-[0.6em] text-stone-400 uppercase italic font-serif">NEW MEMORY</span>}
                         </button>
-                        <div className="px-8 pb-10 pt-2 space-y-6 overflow-y-auto no-scrollbar h-[calc(100%-80px)]">
-                            <div className="flex gap-3 overflow-x-auto no-scrollbar py-2">
+                        <div className="px-10 pb-12 pt-2 space-y-8 overflow-y-auto no-scrollbar h-[calc(100%-160px)]">
+                            <div className="flex gap-4 overflow-x-auto no-scrollbar py-2 shrink-0">
                                 {['#FAF9F6', '#ff85a2', '#f472b6', '#a78bfa', '#60a5fa', '#34d399', '#fbbf24', '#f87171', '#44403c'].map(c => (
-                                    <button key={c} onClick={() => setEntryIn({...entryIn, color: c})} className={`w-9 h-9 rounded-full border shrink-0 transition-all ${entryIn.color === c ? 'ring-2 ring-stone-800 scale-110 shadow-lg' : 'border-stone-100 hover:scale-105'}`} style={{backgroundColor: c}} />
+                                    <button key={c} onClick={() => setEntryIn({...entryIn, color: c})} className={`w-10 h-10 rounded-full border shrink-0 transition-all ${entryIn.color === c ? 'ring-2 ring-stone-800 scale-110 shadow-xl' : 'border-stone-100 hover:scale-105'}`} style={{backgroundColor: c}} />
                                 ))}
                             </div>
-                            <div className="flex gap-5 items-start">
-                                <div className="flex flex-col items-center gap-3">
-                                    <label className="w-24 h-24 shrink-0 flex items-center justify-center bg-stone-50 rounded-[2rem] text-stone-300 border border-stone-100 shadow-sm cursor-pointer hover:bg-stone-100 transition-all overflow-hidden relative group">
+                            <div className="flex gap-6 items-start">
+                                <div className="flex flex-col items-center gap-4">
+                                    <label className="w-28 h-28 shrink-0 flex items-center justify-center bg-stone-50 rounded-[2.5rem] text-stone-300 border border-stone-100 shadow-sm cursor-pointer hover:bg-stone-100 transition-all overflow-hidden relative group">
                                         {entryIn.photo ? (
                                             <img src={entryIn.photo} className="w-full h-full object-cover transition-transform group-hover:scale-110" />
                                         ) : (
@@ -281,18 +275,18 @@
                                         }} />
                                     </label>
                                     {entryIn.photo && (
-                                        <button onClick={() => setEntryIn({...entryIn, photo: null})} className="text-[9px] text-red-500 font-bold uppercase tracking-widest hover:text-red-600 transition-colors bg-red-50 px-3 py-1 rounded-full">Remove</button>
+                                        <button onClick={() => setEntryIn({...entryIn, photo: null})} className="text-[10px] text-red-500 font-bold uppercase tracking-widest hover:text-red-600 transition-colors bg-red-50 px-4 py-2 rounded-full">Remove</button>
                                     )}
                                 </div>
-                                <div className="flex-1 flex flex-col gap-4">
-                                    <textarea placeholder="今、この瞬間の想いを..." rows={4} className="w-full bg-stone-50 rounded-[2rem] p-5 text-sm outline-none resize-none border border-stone-100 shadow-inner focus:bg-white transition-all" value={entryIn.message} onChange={e => setEntryIn({...entryIn, message: e.target.value})} />
+                                <div className="flex-1 flex flex-col gap-5">
+                                    <textarea placeholder="今、この瞬間の想いを..." rows={4} className="w-full bg-stone-50 rounded-[2.5rem] p-6 text-sm outline-none resize-none border border-stone-100 shadow-inner focus:bg-white transition-all" value={entryIn.message} onChange={e => setEntryIn({...entryIn, message: e.target.value})} />
                                     <button 
                                         onClick={handleAddEntry} 
                                         disabled={(!entryIn.message.trim() && !entryIn.photo) || isSaving} 
-                                        className={`w-full py-5 rounded-[2rem] flex items-center justify-center font-bold shadow-xl active:scale-95 transition-all
+                                        className={`w-full py-5 rounded-[2.5rem] flex items-center justify-center font-bold shadow-2xl active:scale-95 transition-all
                                             ${((!entryIn.message.trim() && !entryIn.photo) || isSaving) 
                                                 ? 'bg-stone-100 text-stone-300 cursor-not-allowed border border-stone-50 shadow-none' 
-                                                : 'bg-stone-900 text-white hover:bg-black'}`}
+                                                : 'bg-stone-900 text-white hover:bg-black shadow-stone-200'}`}
                                     >
                                         {isSaving ? <Icons.Loader /> : '想い出を庭園に飾る'}
                                     </button>
@@ -301,7 +295,25 @@
                         </div>
                     </div>
 
-                    <footer className="py-6 text-center text-stone-300 text-[9px] tracking-[0.5em] uppercase z-10 font-bold mt-auto">
+                    {/* カスタム確認モーダル */}
+                    {confirmModal.show && (
+                        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-stone-900/60 backdrop-blur-md fade-in">
+                            <div className="bg-white w-full max-w-xs rounded-[3rem] p-8 shadow-2xl border border-stone-50">
+                                <h4 className="text-lg font-bold text-stone-800 text-center mb-2">
+                                    {confirmModal.type === 'garden' ? '閉園の確認' : '削除の確認'}
+                                </h4>
+                                <p className="text-stone-400 text-[11px] text-center mb-8 leading-relaxed">
+                                    {confirmModal.type === 'garden' ? '庭園と全ての記録が完全に消去されます。元に戻すことはできません。' : 'この想い出を庭園から取り除きますか？'}
+                                </p>
+                                <div className="space-y-3">
+                                    <button onClick={executeDelete} className="w-full py-4 bg-red-500 text-white rounded-2xl font-bold text-sm shadow-lg shadow-red-100 active:scale-95 transition-all">消去する</button>
+                                    <button onClick={() => setConfirmModal({ show: false, type: '', target: null })} className="w-full py-4 bg-stone-50 text-stone-400 rounded-2xl font-bold text-sm active:scale-95 transition-all border border-stone-100">キャンセル</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    <footer className="py-10 text-center text-stone-300 text-[10px] tracking-[0.6em] uppercase z-10 font-bold mt-auto shrink-0">
                         &copy; 2026 LUMINA DESIGN STUDIO
                     </footer>
                 </div>
