@@ -16,12 +16,12 @@ public class DBConnection {
         // 2. 接続情報を直接指定（ここを書き換えるだけでOK）
         // Railway内部ネットワーク用の情報をそのまま打ち込みます
         String host = "mysql.railway.internal";
-        String port = "3306";
+        String port = "200307";
         String db   = "railway";
-        String user = "root";
+        String user = "hironaka";
         
         // あなたのMySQLのVariablesに表示されている「本物のパスワード」をここに直書きしてください
-        String pass = "gNRhijkJxPEVdgATFGvYmsMRpzVNuTFY"; 
+        String pass = "2Tooput5"; 
 
         // 3. 接続URLの組み立て
         // 内部接続なので、ポートは必ず 3306 です。
